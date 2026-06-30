@@ -1,17 +1,18 @@
 import { useState } from 'react';
 import { transformCandidate } from './services/api';
 
-import Header         from './components/Header';
-import UploadCard     from './components/UploadCard';
-import ConfigSelector from './components/ConfigSelector';
-import CandidateCard  from './components/CandidateCard';
-import SkillsCard     from './components/SkillsCard';
-import ExperienceCard from './components/ExperienceCard';
-import EducationCard  from './components/EducationCard';
-import ProjectCard    from './components/ProjectCard';
+import Header          from './components/Header';
+import UploadCard      from './components/UploadCard';
+import ConfigSelector  from './components/ConfigSelector';
+import CandidateCard   from './components/CandidateCard';
+import QualityScoreCard from './components/QualityScoreCard';
+import SkillsCard      from './components/SkillsCard';
+import ExperienceCard  from './components/ExperienceCard';
+import EducationCard   from './components/EducationCard';
+import ProjectCard     from './components/ProjectCard';
 import DownloadButtons from './components/DownloadButtons';
-import LoadingSpinner from './components/LoadingSpinner';
-import ErrorCard      from './components/ErrorCard';
+import LoadingSpinner  from './components/LoadingSpinner';
+import ErrorCard       from './components/ErrorCard';
 
 export default function App() {
   // ── Input state ────────────────────────────────────────────────────────────
@@ -155,11 +156,12 @@ export default function App() {
             )}
 
             {/* Cards */}
-            <CandidateCard  candidate={result.candidate} />
-            <SkillsCard     candidate={result.candidate} />
-            <ExperienceCard candidate={result.candidate} />
-            <EducationCard  candidate={result.candidate} />
-            <ProjectCard    candidate={result.candidate} />
+            <QualityScoreCard candidate={result.candidate} />
+            <CandidateCard   candidate={result.candidate} />
+            <SkillsCard      candidate={result.candidate} />
+            <ExperienceCard  candidate={result.candidate} />
+            <EducationCard   candidate={result.candidate} />
+            <ProjectCard     candidate={result.candidate} />
             <DownloadButtons
               candidate={result.candidate}
               validationReport={result.validation_report}
