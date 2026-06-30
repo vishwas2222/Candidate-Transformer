@@ -1,3 +1,4 @@
+import argparse
 import json
 from parsers.csv_parser import CSVParser
 from parsers.resume_parser import ResumeParser
@@ -8,6 +9,12 @@ from models.project import Project
 from models.experience import Experience
 from models.education import Education
 from utils.logger import logger
+
+from config.config_loader import ConfigLoader
+from projection.serializer import CandidateSerializer
+from projection.output_formatter import OutputFormatter
+from validation.schema_validator import SchemaValidator
+from exporter.file_exporter import FileExporter
 
 
 def _fmt_list(items, indent=6):
@@ -80,8 +87,77 @@ def format_canonical_candidate(cc) -> str:
     return "\n".join(lines)
 
 
+def run_output_layer(canonical_profile, profile_name: str, candidate_sources: int = 2) -> None:
+    """Runs Part 3 (the Output Layer) against an already-built CanonicalCandidate.
+
+    This is purely additive on top of the existing parse/normalize/merge
+    pipeline: it never reads from or modifies the canonical profile in place,
+    it only projects a NEW view of it per the selected config profile.
+
+    Args:
+        canonical_profile: The CanonicalCandidate produced by Part 2 (merger).
+        profile_name: Name of the output config profile to use (e.g. "default").
+        candidate_sources: Number of source systems merged into the candidate,
+            used for output metadata.
+    """
+    logger.info(f"Loading Config: {profile_name}")
+    loader = ConfigLoader()
+    config, config_issues = loader.load(profile_name)
+    for issue in config_issues:
+        log_fn = {"ERROR": logger.error, "WARNING": logger.warning, "INFO": logger.info}.get(
+            issue.severity, logger.info
+        )
+        log_fn(f"Config[{issue.severity}] {issue.message}")
+
+    logger.info("Validating Config")
+    logger.info("Projection Started")
+    serializer = CandidateSerializer()
+    document = serializer.serialize(canonical_profile, config, candidate_sources=candidate_sources)
+    logger.info("Projection Completed")
+
+    logger.info("Schema Validation Started")
+    report = SchemaValidator().validate(document, config)
+    if report.is_valid:
+        logger.info("Schema Validation Passed")
+    else:
+        logger.error(f"Schema Validation Failed: {len(report.errors)} error(s)")
+    logger.info("Validation Report Generated")
+
+    if config.metadata.get("include_validation_summary") and "metadata" in document:
+        document["metadata"]["validation_summary"] = report.summary()
+
+    logger.info("Serialization Started")
+    formatted_json = OutputFormatter.format(document, config)
+    logger.info("Output Generated")
+
+    exporter = FileExporter()
+    candidate_result = exporter.export_candidate(formatted_json, config.output_directory, config.output_filename)
+    report_result = exporter.export_validation_report(report.to_dict(), config.output_directory)
+
+    if candidate_result.success:
+        logger.info(f"Files Saved: {candidate_result.path}")
+    else:
+        logger.error(f"Could not save candidate output: {candidate_result.error}")
+
+    if report_result.success:
+        logger.info(f"Files Saved: {report_result.path}")
+    else:
+        logger.error(f"Could not save validation report: {report_result.error}")
+
+
+def _parse_args():
+    parser = argparse.ArgumentParser(description="Multi-Source Candidate Data Transformer")
+    parser.add_argument(
+        "--config", dest="config", default="default",
+        help="Output config profile to use (default, recruiter, analytics, minimal, developer).",
+    )
+    return parser.parse_args()
+
+
 def main():
-    """Main CLI entrypoint to execute parsing, normalization, and merging."""
+    """Main CLI entrypoint to execute parsing, normalization, merging, and output."""
+    args = _parse_args()
+
     csv_path = "inputs/recruiter.csv"
     resume_path = "inputs/sample_resume.pdf"
 
@@ -113,6 +189,9 @@ def main():
         canonical_profile = merger.merge(norm_csv, norm_resume)
 
         print(format_canonical_candidate(canonical_profile))
+
+        source_count = len({s for s in (norm_csv.get("source", ""), norm_resume.get("source", "")) if s})
+        run_output_layer(canonical_profile, args.config, candidate_sources=source_count)
     else:
         logger.error("No candidate data extracted from any source. Merge aborted.")
 

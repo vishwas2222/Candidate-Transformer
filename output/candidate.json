@@ -1,0 +1,177 @@
+{
+  "candidate": {
+    "current_company": "",
+    "education": [
+      {
+        "cgpa": "9.002",
+        "degree": "B.E.",
+        "description": [],
+        "end_date": "Present",
+        "grade": "",
+        "institution": "B.M.S. College of Engineering, Bengaluru",
+        "percentage": "",
+        "school": "B.M.S. College of Engineering, Bengaluru",
+        "specialization": "Information Science",
+        "start_date": "2023-01"
+      },
+      {
+        "cgpa": "",
+        "degree": "Class XII",
+        "description": [],
+        "end_date": "2023-01",
+        "grade": "",
+        "institution": "Gangavathi, Karnataka",
+        "percentage": "96.2",
+        "school": "Gangavathi, Karnataka",
+        "specialization": "Vidyanikentan PU College",
+        "start_date": "2021-01"
+      },
+      {
+        "cgpa": "",
+        "degree": "Class X",
+        "description": [],
+        "end_date": "2021-01",
+        "grade": "",
+        "institution": "Sriramnagar, Karnataka",
+        "percentage": "91",
+        "school": "Sriramnagar, Karnataka",
+        "specialization": "Sri Vidyaniketan School",
+        "start_date": "2020-01"
+      }
+    ],
+    "emails": [
+      "vishwasr762@gmail.com"
+    ],
+    "experience": [
+      {
+        "company": "Samsung PRISM Program",
+        "description": [
+          "Developing compiler-assisted memory access monitoring tools using LLVM/ Clang to analyze Bengaluru",
+          "and optimize runtime memory behavior.",
+          "Implementing instrumentation passes to detect memory access inefficiencies including",
+          "redundant loads, false sharing, and poor locality.",
+          "Exploring and applying loop optimizations, prefetching strategies, and redundancy",
+          "elimination techniques to improve memory performance.",
+          "Benchmarking optimizations against real workloads to quantify speedup and memory",
+          "efficiency gains."
+        ],
+        "end_date": "Present",
+        "location": "",
+        "start_date": "2026-01",
+        "title": "PRISM Intern – Compiler Optimization Research"
+      }
+    ],
+    "full_name": "Vishwas Reddy",
+    "headline": "",
+    "phones": [
+      "+917795279140"
+    ],
+    "projects": [
+      {
+        "demo": "",
+        "description": [
+          "Developed a vision-based indoor localization framework for GPS-denied environments using",
+          "smartphone camera and IMU sensors.",
+          "Designed a localization pipeline using Visual-Inertial SLAM concepts and feature matching",
+          "(ORB-SLAM3-inspired) for accurate indoor positioning.",
+          "Built an intent-aware navigation workflow enabling natural language destination queries",
+          "and context-aware POI recommendations.",
+          "Integrated AR-based navigation for real-time indoor guidance with zero external hardware",
+          "requirements."
+        ],
+        "end_date": "Present",
+        "github": "",
+        "project_name": "Hybrid Vision-Based Indoor Localization & Intent-Aware Navigation Framework",
+        "start_date": "2026-01",
+        "technology_stack": [
+          "Python",
+          "OpenCV",
+          "Computer Vision",
+          "SLAM",
+          "AR",
+          "Android",
+          "IMU Sensors"
+        ]
+      },
+      {
+        "demo": "",
+        "description": [
+          "Engineered a next-generation AI-powered exam proctoring system with a privacy-first",
+          "design, combining computer vision and behavioral analysis.",
+          "Built a full-stack application with a React frontend and Flask REST API backend, supporting",
+          "Admin/ Student authentication and end-to-end exam management."
+        ],
+        "end_date": "2025-11",
+        "github": "",
+        "project_name": "ProctorAI",
+        "start_date": "2025-10",
+        "technology_stack": [
+          "React",
+          "Flask",
+          "Python",
+          "MediaPipe",
+          "YOLOv8",
+          "REST APIs"
+        ]
+      },
+      {
+        "demo": "",
+        "description": [
+          "Designed a relational database schema in MySQL to manage books, members, and",
+          "borrowing records, enforcing data consistency and referential integrity.",
+          "Built a structured backend API enabling real-time operations — book issuance, returns, and",
+          "search — with dynamic server-side rendering."
+        ],
+        "end_date": "2025-04",
+        "github": "",
+        "project_name": "Library Management System",
+        "start_date": "2025-02",
+        "technology_stack": [
+          "Node.js",
+          "Express.js",
+          "MySQL"
+        ]
+      }
+    ],
+    "skills": [
+      "(CN)",
+      "Android",
+      "C",
+      "C++",
+      "Clang",
+      "CLC",
+      "Computer",
+      "Data Structures and Algorithms",
+      "DBMS",
+      "Express.js",
+      "Flask",
+      "Git",
+      "GitHub",
+      "Java",
+      "JavaScript",
+      "LLVM",
+      "MediaPipe",
+      "MongoDB",
+      "MySQL",
+      "Networks",
+      "Node.js",
+      "Object-Oriented Programming",
+      "OpenCV",
+      "OS",
+      "Python",
+      "React",
+      "REST APIs",
+      "SLAM",
+      "SQL",
+      "Unix",
+      "YOLOv8"
+    ],
+    "title": ""
+  },
+  "metadata": {
+    "candidate_sources": 1,
+    "generated_at": "2026-06-30T11:08:12.400887Z",
+    "profile": "default",
+    "schema_version": "1.0"
+  }
+}

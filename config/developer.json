@@ -1,0 +1,36 @@
+{
+    "profile": "developer",
+    "include_fields": [
+        "full_name",
+        "emails",
+        "phones",
+        "headline",
+        "current_company",
+        "title",
+        "skills",
+        "experience",
+        "education",
+        "projects"
+    ],
+    "exclude_fields": [],
+    "include_confidence": true,
+    "include_sources": true,
+    "include_raw_text": true,
+    "pretty_print": true,
+    "sort_skills": false,
+    "sort_projects": false,
+    "date_format": "RAW",
+    "output_directory": "output",
+    "output_filename": "candidate.json",
+    "empty_field_policy": "keep",
+    "field_mapping": {},
+    "metadata": {
+        "include": true,
+        "schema_version": "1.0",
+        "include_validation_summary": true
+    },
+    "validation": {
+        "enabled": true,
+        "strict": false
+    }
+}

@@ -1,0 +1,28 @@
+{
+    "profile": "minimal",
+    "include_fields": [
+        "full_name",
+        "emails",
+        "phones",
+        "skills"
+    ],
+    "exclude_fields": [],
+    "include_confidence": false,
+    "include_sources": false,
+    "pretty_print": true,
+    "sort_skills": true,
+    "sort_projects": false,
+    "date_format": "ISO",
+    "output_directory": "output",
+    "output_filename": "candidate.json",
+    "empty_field_policy": "remove",
+    "field_mapping": {},
+    "metadata": {
+        "include": true,
+        "schema_version": "1.0"
+    },
+    "validation": {
+        "enabled": true,
+        "strict": false
+    }
+}
