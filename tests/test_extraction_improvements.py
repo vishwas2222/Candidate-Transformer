@@ -352,19 +352,37 @@ class TestSkillExtraction:
         assert not any("core subjects" in s.lower() for s in skills)
 
     def test_technologies_discovered_from_project_text(self):
-        """Technologies appearing in project descriptions must be added to skills."""
+        """Technologies in project descriptions are inferred by Project.from_dict(),
+        NOT by extract_skills().
+
+        extract_skills() is now section-strict: it only processes lines that
+        appear inside the Skills section.  Technologies mentioned in project
+        bullets are attached to the Project object via extract_technologies_from_text()
+        (called inside Project.from_dict()), which is a separate path from skills.
+
+        This test verifies that extract_skills() correctly returns an empty list
+        when the skills section is absent.
+        """
         text = (
             "Projects\n"
             "ProctorAI 10/2025 – 11/2025\n"
             "Built using React, Flask, MediaPipe, YOLOv8, and OpenCV.\n"
         )
         sections = make_sections(text)
+        # No Skills section → extract_skills must return []
         skills = ResumeExtractor.extract_skills(text, sections)
-        for expected in ["React", "Flask", "YOLOv8", "OpenCV"]:
-            assert any(expected.lower() == s.lower() for s in skills), f"Missing: {expected}"
+        assert skills == [], (
+            "extract_skills() must not scan project/experience text; "
+            f"got: {skills}"
+        )
 
     def test_technologies_discovered_from_experience_text(self):
-        """Technologies in experience bullets must be discovered."""
+        """Technologies in experience bullets are NOT returned by extract_skills().
+
+        The section-strict design means only the Skills section is processed.
+        Technologies that appear only in the Experience section are not added
+        to the skills list (they should be attached to Experience objects instead).
+        """
         text = (
             "Experience\n"
             "PRISM Intern at Samsung 01/2026 – Present\n"
@@ -372,8 +390,11 @@ class TestSkillExtraction:
         )
         sections = make_sections(text)
         skills = ResumeExtractor.extract_skills(text, sections)
-        assert any("llvm" == s.lower() for s in skills)
-        assert any("clang" == s.lower() for s in skills)
+        # No Skills section → must return []
+        assert skills == [], (
+            "extract_skills() must not scan experience text; "
+            f"got: {skills}"
+        )
 
     def test_skill_normalizer_configurable_mapping(self):
         """SkillNormalizer should canonicalize known variants."""

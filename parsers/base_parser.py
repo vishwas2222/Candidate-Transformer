@@ -1,6 +1,21 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any
 
+# Re-export new domain exceptions so callers can import them from here
+# without breaking any existing "from parsers.base_parser import ..." statements.
+from utils.exceptions import (  # noqa: F401
+    CandidateTransformerError,
+    FileValidationError,
+    UnsupportedFileTypeError,
+    CorruptedPDFError,
+    EmptyResumeError,
+    CorruptedCSVError,
+    PipelineError,
+    ValidationError,
+    SerializationError,
+    ConfigurationError,
+)
+
 class ParserError(Exception):
     """Base class for all parser exceptions."""
     pass

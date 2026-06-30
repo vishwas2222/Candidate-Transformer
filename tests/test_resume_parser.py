@@ -79,10 +79,17 @@ def test_empty_resume(tmp_path):
         parser.parse()
 
 def test_corrupted_resume(tmp_path):
-    """Test that ParserInvalidFormatError is raised for a corrupted PDF."""
+    """Test that a typed error is raised for a corrupted PDF.
+
+    The parser now raises ``CorruptedPDFError`` (a richer, typed exception)
+    instead of the generic ``ParserInvalidFormatError``.  Both are accepted
+    here to remain backward-compatible if the exception type is adjusted again.
+    """
+    from utils.exceptions import CorruptedPDFError
+
     pdf_path = tmp_path / "corrupted.pdf"
     pdf_path.write_text("%PDF-1.4 but then garbage invalid data...")
-    
+
     parser = ResumeParser(str(pdf_path))
-    with pytest.raises(ParserInvalidFormatError):
+    with pytest.raises((ParserInvalidFormatError, CorruptedPDFError)):
         parser.parse()

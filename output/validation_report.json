@@ -1,6 +1,12 @@
 {
   "errors": [],
-  "info": [],
+  "info": [
+    {
+      "field": "experience[0]",
+      "message": "'company' is empty in 'experience' item.",
+      "type": "INFO"
+    }
+  ],
   "is_valid": true,
   "warnings": []
 }

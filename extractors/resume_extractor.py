@@ -30,34 +30,243 @@ PROJECTS_KEYWORDS = [
     "research projects", "major projects", "minor projects",
     "course projects", "capstone projects", "selected projects",
 ]
-# Sections that should be routed to "other" (recognized but not core-parsed)
+# Sections that should be routed to "other" (recognized but not core-parsed).
+# Headings in this list stop the skills parser from continuing into non-skill content.
 OTHER_SECTION_KEYWORDS = [
+    # Standard resume sections
     "certifications", "summary", "objective", "profile", "professional summary",
     "interests", "languages", "publications", "awards",
     "achievements", "hobbies", "extracurricular", "volunteer",
     "volunteer experience", "leadership", "leadership experience",
     "recognition", "honors", "honors & awards", "research",
     "activities", "co-curricular activities", "strengths",
+    # Extra headings that must terminate skills parsing
+    "organizations", "organization",
+    "co-curricular", "extra-curricular", "extra curricular",
+    "extracurricular activities", "co-curricular activities",
+    "positions of responsibility", "positions",
+    "leadership and event organization",
+    "achievements & activities", "achievements and activities",
+    "references", "reference",
+    "contact", "contacts", "contact information", "contact details",
+    "personal details", "personal information", "personal",
+    "declaration", "signature",
+    "accomplishments", "notable achievements",
+    "social media", "social profiles", "online profiles",
+    "open source", "open source contributions",
+    "competitions", "hackathons",
+    "sports", "cultural activities",
 ]
 
-# Section sub-headings that should NOT be treated as skills
+# Section sub-headings that should NOT be treated as skills.
+# These are category labels inside a Skills section (e.g. "Languages:", "Tools:").
 SKILL_SECTION_HEADINGS = {
+    # Layout sub-headings
     "languages", "core subjects", "backend", "frontend", "backend / development",
     "development", "tools", "frameworks", "databases", "devops", "cloud",
     "web technologies", "programming languages", "soft skills", "other",
-    "machine learning", "data science", "mobile", "testing", "infrastructure",
+    "mobile", "testing", "infrastructure",
     "computer organization & architecture (coa)", "computer organization",
-    "achievements", "profiles", "projects", "education", "experience",
     "technology stack", "tech stack",
+    # Confusable section names that are NOT real skills
+    "achievements", "profiles", "projects", "education", "experience",
+    # Additional category labels seen in real resumes
+    "core skills", "technical skills", "key skills", "skill set", "skillset",
+    "libraries", "libraries & frameworks", "libraries and frameworks",
+    "version control", "operating system",
+    "build tools", "platforms", "methodologies", "concepts",
+    "areas of expertise", "competencies", "tools & technologies",
+    "skills & expertise", "programming", "scripting", "markup",
+    "design", "networking", "security", "embedded",
+    "others", "miscellaneous", "additional",
 }
 
 # Sorted longest-first so multi-word headings are matched before shorter substrings
 _SORTED_HEADINGS = sorted(SKILL_SECTION_HEADINGS, key=len, reverse=True)
 
-# Date pattern to detect a date range anywhere in a line
-# Matches inline (e.g. "01/2026 – Present") and parenthesized (e.g. "(2022 - Present)")
+# ─────────────────────────────────────────────────────────────────────────────
+# Skills extraction constants
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Stop words: tokens that are definitively NOT skills.
+# This list is intentionally generous to avoid false positives.
+SKILL_STOP_WORDS: frozenset = frozenset({
+    # Articles / prepositions / conjunctions
+    "a", "an", "the", "and", "or", "but", "nor", "so", "yet",
+    "of", "to", "for", "with", "on", "in", "at", "by", "from",
+    "about", "above", "after", "along", "also", "as", "into",
+    "like", "near", "off", "over", "past", "than", "through",
+    "under", "until", "up", "upon", "via", "vs", "while",
+    # Common verbs / auxiliaries
+    "is", "it", "its", "be", "been", "being", "are", "was", "were",
+    "have", "has", "had", "do", "does", "did", "will", "would",
+    "could", "should", "may", "might", "can", "shall",
+    "use", "used", "using", "based", "built", "work", "worked",
+    "not", "no", "this", "that", "these", "those",
+    # Temporal / status words (not skills)
+    "present", "current", "now", "till", "until", "ongoing",
+    # Role / org / event words
+    "student", "representative", "media", "head", "coordinator",
+    "club", "organization", "organizations", "leadership", "member",
+    "committee", "team", "society", "chapter", "college", "university",
+    "department", "course", "semester", "year", "batch",
+    "intern", "internship", "associate", "director",
+    "manager", "officer", "executive", "secretary", "treasurer",
+    "president", "vice", "cultural", "sports", "event", "events",
+    "management", "volunteer", "participation", "workshop",
+    "training", "seminar", "certification", "certificate",
+    "social", "media", "content", "production", "studio",
+    # Soft skills / interpersonal traits — never technical skills
+    "adaptability", "communication", "leadership", "teamwork",
+    "collaboration", "creativity", "initiative", "motivation",
+    "responsibility", "accountability", "resilience", "empathy",
+    "punctuality", "diligence", "integrity", "dedication",
+    "enthusiasm", "confidence", "patience", "flexibility",
+    "reliability", "discipline", "professionalism",
+    # Generic/ambiguous single words that look like category labels
+    "scripting",   # caught as orphan; "Shell Scripting" is protected as phrase
+    "thinking",    # from "Critical Thinking" split across columns
+    "critical",    # same
+    "learning",    # orphan from "Machine Learning" split
+    "testing",     # orphan from "Software Testing" split
+    "engineering", # orphan from "Software Engineering" split
+    "architecture", # orphan from "Computer Organization and Architecture" split
+    "time",        # from "Time Management"
+    "solving",     # from "Problem-Solving" split
+    # Ambiguous single-word orphans from two-column PDF splits.
+    # These words only make sense as part of a protected multi-word phrase
+    # (e.g. "Shell Scripting", "Machine Learning", "Operating Systems").
+    # They are filtered here so that the broken-off half is not emitted alone.
+    "shell",        # only meaningful as "Shell Scripting"
+    "machine",      # only meaningful as "Machine Learning"
+    "os",           # too ambiguous alone ("Operating Systems" is a full phrase)
+    "debugging",    # general activity, not a discrete technology
+    "problem-solving",  # soft skill / general competency
+    # Common noise tokens from PDFs
+    "etc", "viz", "eg", "ie", "na", "nil",
+})
+
+# Canonical name normalizations applied after extraction.
+# Key: lowercase variant seen in resumes → Value: preferred display name.
+SKILL_TECH_NORMALIZATIONS: dict = {
+    # JavaScript ecosystem
+    "js": "JavaScript",
+    "javascript": "JavaScript",
+    "ts": "TypeScript",
+    "typescript": "TypeScript",
+    "react": "React.js",
+    "reactjs": "React.js",
+    "react.js": "React.js",
+    "node": "Node.js",
+    "nodejs": "Node.js",
+    "node.js": "Node.js",
+    "express": "Express.js",
+    "expressjs": "Express.js",
+    "express.js": "Express.js",
+    "nextjs": "Next.js",
+    "next.js": "Next.js",
+    "vuejs": "Vue.js",
+    "vue.js": "Vue.js",
+    # Database
+    "mongo": "MongoDB",
+    "mongodb": "MongoDB",
+    "postgres": "PostgreSQL",
+    "postgresql": "PostgreSQL",
+    "mysql": "MySQL",
+    # Python
+    "py": "Python",
+    # Cloud
+    "gcp": "GCP",
+    "aws": "AWS",
+    # Version control
+    "github": "GitHub",
+    "gitlab": "GitLab",
+    # DevOps / pipeline
+    "ci/cd": "CI/CD",
+    "ci / cd": "CI/CD",
+    # System abbreviations
+    "oops": "OOPS",
+    "dbms": "DBMS",
+    "dsa": "DSA",
+}
+
+# Known multi-word skill phrases that must be kept intact (not split on whitespace).
+# Sorted longest-first for greedy left-to-right matching.
+MULTI_WORD_SKILL_PHRASES: list = sorted([
+    "data structures and algorithms",
+    "object-oriented programming",
+    "object oriented programming",
+    "natural language processing",
+    "computer organization and architecture",
+    "computer organization & architecture",
+    "computer vision",
+    "computer networks",
+    "operating systems",
+    "machine learning",
+    "deep learning",
+    "software engineering",
+    "software testing",
+    "shell scripting",
+    "shell script",
+    "version control",
+    "web technologies",
+    "data science",
+    "artificial intelligence",
+    "rest apis",
+    "rest api",
+    "context api",
+    "local storage",
+    "scikit-learn",
+    "scikit learn",
+    "visual studio code",
+    "visual studio",
+    "android studio",
+    "node.js",
+    "react.js",
+    "express.js",
+    "next.js",
+    "vue.js",
+    "react native",
+    "spring boot",
+    "tailwind css",
+    "ci/cd",
+    "ci / cd",
+    "test driven development",
+    "agile methodology",
+    "design patterns",
+    "data structures",
+], key=len, reverse=True)
+
+# Compiled patterns for multi-word phrase matching (word-boundary anchored)
+_MULTI_WORD_PATTERNS: list = [
+    (phrase, re.compile(rf'(?i)(?<![\w/])(?:{re.escape(phrase)})(?![\w/])'))
+    for phrase in MULTI_WORD_SKILL_PHRASES
+]
+
+# Pattern: standalone 4-digit year (1990–2099)
+_YEAR_RE = re.compile(r'^(?:19|20)\d{2}$')
+
+# Pattern: a token that contains NO alphanumeric characters at all
+_NOISE_TOKEN_RE = re.compile(r'^[^a-zA-Z0-9#+.]+$')
+
+# Date pattern to detect a date range anywhere in a line.
+# Matches:
+#   - Numeric formats : "01/2026 – Present", "(2022 - 2024)"
+#   - Month-name formats: "Jan 2024 – Dec 2024", "January 2024 – Present"
+_MONTH_NAMES = (
+    r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|'
+    r'Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)'
+)
 DATE_RANGE_PATTERN = re.compile(
-    r'(?:\()?(?:\d{1,2}/)?(?:\d{4})\s*(?:[-–]|to)\s*(?:Present|Current|Now|(?:\d{1,2}/)?\d{4})\s*\)?\s*$',
+    r'(?:\(?)?'
+    r'(?:'
+    r'(?:\d{1,2}/)?' + r'(?:\d{4})'
+    r'|'
+    + _MONTH_NAMES + r'\s+\d{4}'
+    r')'
+    r'\s*(?:[-–]|to)\s*'
+    r'(?:Present|Current|Now|(?:\d{1,2}/)?\d{4}|' + _MONTH_NAMES + r'\s+\d{4})'
+    r'\s*\)?\s*$',
     re.IGNORECASE
 )
 
@@ -150,7 +359,7 @@ class ResumeExtractor:
             One of "experience", "education", "skills", "projects", "other", or
             None if no confident match is found.
         """
-        if not check_line or len(check_line.split()) > 6:
+        if not check_line or len(check_line.split()) > 7:
             return None
 
         # Token-overlap based matching: a line matches a section if it contains
@@ -160,12 +369,16 @@ class ResumeExtractor:
 
         if _has_word(["experience", "internship", "employment"], check_line):
             return "experience"
+        # Check "project" before "research" so that "Research Projects" routes
+        # to "projects" rather than being swallowed by the "other" bucket.
         if _has_word(["project", "projects"], check_line):
             return "projects"
         if _has_word(["skill", "skills", "competenc", "expertise", "proficienc", "stack"], check_line):
             return "skills"
         if _has_word(["education", "academic", "academics", "qualification", "scholastic"], check_line):
             return "education"
+        # "research" is listed here only as a catch-all for "Research" sections
+        # that do NOT also contain a project signal word (handled above).
         if _has_word([
             "certification", "summary", "objective", "profile", "interest",
             "language", "publication", "award", "achievement", "hobbies",
@@ -201,8 +414,13 @@ class ResumeExtractor:
             if not cleaned:
                 continue
 
-            # Clean punctuation for checking matching headers
+            # Clean punctuation / decorators for matching headers.
+            # Strip leading '#' (Markdown), leading emoji characters, and
+            # trailing ':' so headings like "🛠️ Skills" or "## Experience:"
+            # are matched correctly.
             check_line = cleaned.lower().lstrip('#').strip().rstrip(':').strip()
+            # Strip leading emoji / non-ASCII decorators (e.g. "🛠️ Skills" → "skills")
+            check_line = re.sub(r'^[^\x00-\x7F\w]+', '', check_line).strip()
 
             if check_line in EXPERIENCE_KEYWORDS:
                 current_section = "experience"
@@ -358,9 +576,28 @@ class ResumeExtractor:
             else:
                 # Non-bullet, non-date-header line
                 if current_header is not None:
-                    # Continuation of description or sub-header
-                    current_desc.append(stripped)
-                    current_raw.append(stripped)
+                    # ── Wrapped-line merging ──────────────────────────────────
+                    # pdfplumber sometimes wraps long lines. A line is a
+                    # continuation of the previous description item (not a new
+                    # standalone bullet) when ALL of the following are true:
+                    #   1. It starts with a lowercase letter.
+                    #   2. There is already at least one description item.
+                    #   3. The previous item did NOT end with sentence-terminal
+                    #      punctuation (., !, ?, :), which would mean the
+                    #      previous sentence was already complete.
+                    if (
+                        stripped
+                        and stripped[0].islower()
+                        and current_desc
+                        and not current_desc[-1].rstrip().endswith(('.', '!', '?', ':'))
+                    ):
+                        # Merge continuation text onto the previous item
+                        current_desc[-1] = current_desc[-1].rstrip() + ' ' + stripped
+                        current_raw.append(stripped)
+                    else:
+                        # Treat as a new description line (sub-header or detail)
+                        current_desc.append(stripped)
+                        current_raw.append(stripped)
                 else:
                     # Start a new entry with this as the header
                     current_header = stripped
@@ -487,6 +724,16 @@ class ResumeExtractor:
                 continue
 
             is_bullet = cls._is_bullet_line(stripped)
+
+            # Parenthesized standalone duration line (e.g. '(Jan 2024 - Mar 2024)')
+            # must be handled BEFORE the date-range guard so it is folded into the
+            # current header rather than being mistaken for a new entry header.
+            if _looks_like_duration_line(stripped) and current_header is not None and not current_desc:
+                current_header = current_header.rstrip() + ' ' + stripped
+                current_raw.append(stripped)
+                # Still may be followed by a tech line
+                continue
+
             is_date_header = bool(DATE_RANGE_PATTERN.search(stripped)) and not is_bullet
 
             # Case 1: Line with explicit date range → always a new entry header
@@ -503,6 +750,7 @@ class ResumeExtractor:
                 current_desc = []
                 current_raw = [stripped]
                 awaiting_tech = True
+
 
             # Case 2: Bullet line → description content
             elif is_bullet:
@@ -863,55 +1111,212 @@ class ResumeExtractor:
 
 
     @classmethod
-    def extract_skills(cls, text: str, sections: Dict[str, List[str]]) -> List[str]:
-        """Extracts skills from the skills section and scans the full text for keywords.
+    def _is_noise_token(cls, token: str) -> bool:
+        """Returns True when a token is definitively not a skill.
 
-        Filters out section sub-headings (e.g. "Languages", "Tools", "Backend / Development")
-        that should not appear as skills.
+        Filters applied (in order):
+        1. Empty or whitespace-only string.
+        2. Pure symbol / punctuation (no alphanumeric characters).
+        3. Standalone 4-digit year (1990-2099).
+        4. Temporal status words (Present, Current, Now).
+        5. Single-character tokens that are not known single-letter languages (C, R).
+        6. Stop words.
+        7. Known section sub-heading labels.
 
         Args:
-            text (str): Full text of the resume.
-            sections (Dict[str, List[str]]): Resume sections.
+            token: A stripped candidate skill string.
 
         Returns:
-            List[str]: List of extracted skills.
+            bool: True if the token should be discarded.
         """
-        extracted_skills = []
+        t = token.strip()
+        if not t:
+            return True
+        # Pure punctuation / symbols (e.g. "•", "&", ":", "–")
+        if _NOISE_TOKEN_RE.match(t):
+            return True
+        # 4-digit year
+        if _YEAR_RE.match(t):
+            return True
+        # Temporal words
+        if t.lower() in {"present", "current", "now"}:
+            return True
+        # Single characters that are not language abbreviations
+        if len(t) == 1 and t not in {"C", "R", "c", "r"}:
+            return True
+        # Stop words (case-insensitive)
+        if t.lower() in SKILL_STOP_WORDS:
+            return True
+        # Known section sub-heading labels
+        if cls._is_section_heading(t):
+            return True
+        return False
 
-        # 1. Parse lines from the identified skills section
+    @classmethod
+    def _normalize_skill(cls, skill: str) -> str:
+        """Applies canonical technology name normalizations.
+
+        Examples:
+            react     → React.js
+            node      → Node.js
+            js        → JavaScript
+            mongo     → MongoDB
+            postgres  → PostgreSQL
+
+        Normalizations only apply when the entire token matches a known alias
+        (case-insensitive exact match). Unknown tokens are returned unchanged.
+
+        Args:
+            skill: A single stripped skill string.
+
+        Returns:
+            str: The normalized skill name.
+        """
+        key = skill.strip().lower()
+        return SKILL_TECH_NORMALIZATIONS.get(key, skill.strip())
+
+    @classmethod
+    def extract_skills(cls, text: str, sections: Dict[str, List[str]]) -> List[str]:
+        """Extracts genuine technical skills from the skills section.
+
+        Design principles
+        -----------------
+        * **Section-strict**: only lines captured inside the ``sections["skills"]``
+          bucket are processed. The full resume text is NOT scanned, eliminating
+          cross-section contamination from Experience, Projects, Organizations, etc.
+        * **Multi-word first**: known multi-word phrases (e.g. "Data Structures and
+          Algorithms", "Machine Learning") are extracted greedily before splitting
+          by delimiter so they are never broken apart.
+        * **Noise-free**: years, standalone symbols, stop words, and category
+          sub-headings are discarded via ``_is_noise_token``.
+        * **Normalised**: tech aliases are collapsed to canonical names
+          (e.g. "react" → "React.js") via ``_normalize_skill``.
+        * **Deduped**: case-insensitive deduplication preserving first-seen order.
+        * **Order-preserving**: skills are returned in the order they appear.
+
+        Args:
+            text (str): Full resume text (kept for API compatibility; not scanned).
+            sections (Dict[str, List[str]]): Resume sections from extract_sections().
+
+        Returns:
+            List[str]: Ordered, deduplicated list of genuine technical skills.
+        """
+        skills: List[str] = []
+        # Lowercase keys for case-insensitive deduplication
+        seen: set = set()
+
+        def _add(raw: str) -> None:
+            """Normalize, validate, and add a skill if it passes all filters."""
+            s = raw.strip().rstrip('.,;').strip()
+            if not s:
+                return
+            if cls._is_noise_token(s):
+                return
+            normalized = cls._normalize_skill(s)
+            key = normalized.lower()
+            if key not in seen:
+                seen.add(key)
+                skills.append(normalized)
+
         skills_lines = sections.get("skills", [])
-        for line in skills_lines:
-            line_clean = line.strip().lstrip('•-*').strip()
 
-            # Handles "Languages: Python, C++" or "Technologies: AWS, SQL"
-            if ":" in line_clean:
-                parts = line_clean.split(":", 1)
-                skills_part = parts[1]
-            else:
-                skills_part = line_clean
+        # ── Cross-line stitching for two-column PDF layouts ────────────────────
+        # pdfplumber reads two-column resumes left-to-right across columns, which
+        # causes multi-word skill phrases to be split across adjacent lines
+        # (e.g. "Shell" ends line N, "Scripting" starts line N+1 after the right
+        # column's content in between).  By joining all skills-section lines with
+        # a comma separator before processing, we give the multi-word phrase
+        # detector a chance to see "Shell Scripting" as a contiguous span.
+        #
+        # The joined blob is then processed as a single virtual line, applying
+        # heading-skip, colon-split, phrase-match, and token-filter in one pass.
+        if not skills_lines:
+            return skills
 
-            # Strip any known heading phrases glued onto this line
-            skills_part = cls._strip_embedded_headings(skills_part)
+        # Build one joined line: strip bullets, join with ", "
+        cleaned_lines = []
+        for raw_line in skills_lines:
+            stripped = re.sub(
+                r'^[\u2022\u25cf\u25cb\u25aa\u2219\u00b7\-\*\u2013\u2014\u25b8\u25ba]+\s*',
+                '', raw_line.strip()
+            ).strip()
+            # Skip entire-line section boundaries
+            if not stripped:
+                continue
+            check = stripped.lower().rstrip(':').strip()
+            if check in OTHER_SECTION_KEYWORDS:
+                break  # hard stop: rest of content is a different section
+            # Skip pure heading lines so their text doesn't end up in the blob
+            if cls._is_section_heading(stripped):
+                continue
+            cleaned_lines.append(stripped)
 
-            # Split by commas and semicolons
-            for raw_skill in re.split(r'[,;]', skills_part):
-                raw_clean = raw_skill.strip().rstrip('.').strip()
-                # Split glued tokens (e.g. "JavaScript DSA" → ["JavaScript", "DSA"])
-                sub_tokens = cls._split_glued_tokens(raw_clean)
-                for skill_clean in sub_tokens:
-                    skill_clean = skill_clean.strip()
-                    if skill_clean and len(skill_clean) < 40 and not cls._is_section_heading(skill_clean):
-                        extracted_skills.append(skill_clean)
+        # ── Single-pass processing of the joined blob ─────────────────────────
+        # We treat the entire joined text as one "line" and reuse the same
+        # phrase-extract → split → filter pipeline.
+        #
+        # IMPORTANT: multi-word phrase matching runs BEFORE _strip_embedded_headings
+        # because some phrases (e.g. "Software Testing", "Computer Networks") contain
+        # words that are also heading labels ("testing", "networking").  Stripping
+        # headings first would break those phrases.
 
-        # 2. Scan the full text for common skills to ensure coverage
-        for kw in COMMON_TECH_KEYWORDS:
-            pattern = re.compile(rf'\b{kw}\b', re.IGNORECASE)
-            for match in pattern.finditer(text):
-                matched_text = match.group(0)
-                if not any(s.lower() == matched_text.lower() for s in extracted_skills):
-                    extracted_skills.append(matched_text)
+        joined = ", ".join(cleaned_lines)
 
-        return extracted_skills
+        # Replace " : " style column-separator artifacts with comma
+        joined = re.sub(r'\s*:\s*', ', ', joined)
+
+        # ── Single-pass processing of the joined blob ─────────────────────────
+        # We treat the entire joined text as one "line" and reuse the same
+        # phrase-extract → split → filter pipeline.
+
+
+        # ── Multi-word phrase extraction (greedy, longest-first) ──────────────
+        # Scan the joined blob for known multi-word phrases first.
+        # Replace each match with a placeholder so commas inside the phrase
+        # survive the subsequent split.
+        working = joined
+        phrase_slots: list = []  # [(placeholder, display_name), ...]
+
+        for phrase, pattern in _MULTI_WORD_PATTERNS:
+            m = pattern.search(working)
+            if m:
+                # Canonical display name
+                display = SKILL_TECH_NORMALIZATIONS.get(
+                    phrase.lower(),
+                    ' '.join(
+                        w.capitalize() if w not in ('and', 'of', 'the', '&')
+                        else w
+                        for w in phrase.split()
+                    )
+                )
+                placeholder = f"__PHRASE_{len(phrase_slots)}__"
+                phrase_slots.append((placeholder, display))
+                working = working[:m.start()] + placeholder + working[m.end():]
+
+        # ── Split remaining blob by comma and semicolon ────────────────────────
+        for raw_token in re.split(r'[,;]', working):
+            raw_token = raw_token.strip()
+            if not raw_token:
+                continue
+
+            # Resolve phrase placeholders
+            resolved = False
+            for placeholder, display in phrase_slots:
+                if placeholder in raw_token:
+                    _add(display)
+                    resolved = True
+                    break
+
+            if resolved:
+                continue
+
+            # No placeholder — split remaining token on whitespace
+            # (handles space-separated skill lists like "Python Java C++")
+            for sub in cls._split_glued_tokens(raw_token):
+                _add(sub)
+
+        return skills
+
 
     @classmethod
     def extract_experience(cls, sections: Dict[str, List[str]]) -> List[Dict]:
