@@ -52,6 +52,22 @@ class Project:
             header, tech_line
         )
 
+        # Also infer technologies mentioned in narrative description bullets
+        # (e.g. "Built using React and Flask") that weren't already captured
+        # from an explicit header/tech-line list.
+        if description:
+            try:
+                from extractors.resume_extractor import extract_technologies_from_text
+                desc_text = " ".join(description)
+                inferred = extract_technologies_from_text(desc_text)
+                seen = {t.lower() for t in technology_stack}
+                for tech in inferred:
+                    if tech.lower() not in seen:
+                        seen.add(tech.lower())
+                        technology_stack.append(tech)
+            except ImportError:
+                pass
+
         return cls(
             raw_text=raw_text,
             project_name=project_name,

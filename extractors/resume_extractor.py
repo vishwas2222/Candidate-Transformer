@@ -6,21 +6,38 @@ from extractors.regex_patterns import EMAIL_PATTERN, PHONE_PATTERN
 EXPERIENCE_KEYWORDS = [
     "experience", "work history", "employment history",
     "professional experience", "work experience", "employment",
-    "professional background", "internships", "internship"
+    "professional background", "internships", "internship",
+    "relevant experience", "career history", "work experiences",
+    "industry experience", "experience & internships",
 ]
 EDUCATION_KEYWORDS = [
     "education", "academic profile", "academic background",
     "academic qualifications", "qualifications", "academic credentials",
-    "academic history"
+    "academic history", "education & qualifications", "educational background",
+    "academics", "scholastic record",
 ]
 SKILLS_KEYWORDS = [
     "skills", "technical skills", "core competencies",
     "skills & expertise", "skills and technologies", "technologies",
-    "technical expertise"
+    "technical expertise", "technical proficiencies", "key skills",
+    "skill set", "skillset", "areas of expertise", "competencies",
+    "technology stack", "tech stack", "tools & technologies",
+    "programming skills", "expertise",
 ]
 PROJECTS_KEYWORDS = [
     "projects", "personal projects", "academic projects",
-    "side projects", "key projects", "project work"
+    "side projects", "key projects", "project work",
+    "research projects", "major projects", "minor projects",
+    "course projects", "capstone projects", "selected projects",
+]
+# Sections that should be routed to "other" (recognized but not core-parsed)
+OTHER_SECTION_KEYWORDS = [
+    "certifications", "summary", "objective", "profile", "professional summary",
+    "interests", "languages", "publications", "awards",
+    "achievements", "hobbies", "extracurricular", "volunteer",
+    "volunteer experience", "leadership", "leadership experience",
+    "recognition", "honors", "honors & awards", "research",
+    "activities", "co-curricular activities", "strengths",
 ]
 
 # Section sub-headings that should NOT be treated as skills
@@ -48,6 +65,53 @@ DATE_RANGE_PATTERN = re.compile(
 BULLET_PATTERN = re.compile(r'^[•\-*–►▸→]\s*')
 
 
+# Common technology keywords scanned for anywhere in free text (e.g. project
+# description sentences like "Built using React and Flask"). Shared between
+# extract_skills() and the Project model's description-based tech extraction.
+COMMON_TECH_KEYWORDS = [
+    "python", "java", "c\\+\\+", "cpp", "c#", "go", "golang", "rust", "ruby",
+    "php", "javascript", "typescript", "html", "css", "sql", "nosql", "mongodb",
+    "postgresql", "mysql", "react", "angular", "vue", "node\\.js", "django",
+    "flask", "fastapi", "spring", "aws", "azure", "gcp", "docker", "kubernetes",
+    "git", "linux", "machine learning", "deep learning", "nlp", "tensorflow",
+    "pytorch", "pandas", "numpy", "scikit-learn", "mediapipe", "yolov8", "yolo",
+    "llvm", "clang", "opencv", "express\\.js", "express", "slam", "android",
+    "openCV", "rest api", "rest apis", "graphql", "redis", "kafka", "spark",
+    "hadoop", "firebase", "next\\.js", "redux", "tailwind", "bootstrap",
+    "jenkins", "terraform", "ansible", "swift", "kotlin", "r\\b", "scala",
+]
+
+_COMMON_TECH_PATTERNS = [re.compile(rf'\b{kw}\b', re.IGNORECASE) for kw in COMMON_TECH_KEYWORDS]
+
+
+def extract_technologies_from_text(text: str) -> List[str]:
+    """Scans free-form text for known technology keywords.
+
+    Used to pull technologies mentioned inside narrative sentences (e.g. project
+    bullet points like "Built using React and Flask" or "Implemented with OpenCV
+    and Python") rather than only from an explicit comma-separated tech list.
+
+    Args:
+        text: Free-form text to scan (e.g. joined project description bullets).
+
+    Returns:
+        List[str]: Technology names found, in first-seen order, deduplicated
+        case-insensitively.
+    """
+    if not text:
+        return []
+    found = []
+    seen = set()
+    for pattern in _COMMON_TECH_PATTERNS:
+        for match in pattern.finditer(text):
+            matched_text = match.group(0)
+            key = matched_text.lower()
+            if key not in seen:
+                seen.add(key)
+                found.append(matched_text)
+    return found
+
+
 class ResumeExtractor:
     """Extractor class for parsing candidate information from raw resume text."""
 
@@ -72,7 +136,47 @@ class ResumeExtractor:
         return text
 
     @staticmethod
-    def extract_sections(text: str) -> Dict[str, List[str]]:
+    def _fuzzy_section_match(check_line: str):
+        """Loosely matches a heading-like line against known section keywords.
+
+        Used as a fallback when a heading line doesn't exactly match the curated
+        keyword lists (e.g. "Work Experience & Internships", "Technical Skill Set",
+        "Academic Projects & Research"). Only fires for short, heading-shaped lines.
+
+        Args:
+            check_line: Lowercased, punctuation-trimmed candidate heading line.
+
+        Returns:
+            One of "experience", "education", "skills", "projects", "other", or
+            None if no confident match is found.
+        """
+        if not check_line or len(check_line.split()) > 6:
+            return None
+
+        # Token-overlap based matching: a line matches a section if it contains
+        # one of that section's signal words as a whole word.
+        def _has_word(words, line):
+            return any(re.search(rf'(?<!\w){re.escape(w)}(?!\w)', line) for w in words)
+
+        if _has_word(["experience", "internship", "employment"], check_line):
+            return "experience"
+        if _has_word(["project", "projects"], check_line):
+            return "projects"
+        if _has_word(["skill", "skills", "competenc", "expertise", "proficienc", "stack"], check_line):
+            return "skills"
+        if _has_word(["education", "academic", "academics", "qualification", "scholastic"], check_line):
+            return "education"
+        if _has_word([
+            "certification", "summary", "objective", "profile", "interest",
+            "language", "publication", "award", "achievement", "hobbies",
+            "extracurricular", "volunteer", "leadership", "honor", "research",
+            "activit", "strength"
+        ], check_line):
+            return "other"
+        return None
+
+    @classmethod
+    def extract_sections(cls, text: str) -> Dict[str, List[str]]:
         """Splits the raw text into logical sections based on keyword headers.
 
         Args:
@@ -117,13 +221,23 @@ class ResumeExtractor:
                 # "Backend / Development") are labels, not new top-level resume sections.
                 # Stay in "skills" so the technologies listed beneath them are still captured.
                 continue
-            elif len(check_line) < 30 and check_line in [
-                "certifications", "summary", "objective",
-                "interests", "languages", "publications", "awards",
-                "achievements", "hobbies", "extracurricular", "volunteer"
-            ]:
+            elif len(check_line) < 40 and check_line in OTHER_SECTION_KEYWORDS:
                 # We skip non-core sections, routing their lines to "other"
                 current_section = "other"
+                continue
+            elif (
+                len(check_line) < 40
+                and len(check_line.split()) <= 4
+                and not BULLET_PATTERN.match(cleaned)
+                and ',' not in check_line
+                and not check_line.endswith('.')
+                and cls._fuzzy_section_match(check_line) is not None
+            ):
+                # Fallback: heading-shaped line (short, no bullet, no trailing
+                # punctuation/commas typical of body text) that loosely matches a
+                # known section name (e.g. "Work Experience & Internships",
+                # "Technical Skill Set") but didn't hit an exact keyword above.
+                current_section = cls._fuzzy_section_match(check_line)
                 continue
 
             if current_section in sections:
@@ -290,6 +404,47 @@ class ResumeExtractor:
         current_raw = []
         awaiting_tech = False  # True right after a header is set
 
+        # Action verbs commonly used to start a description bullet/sentence
+        # (past tense or gerund) — used to distinguish a project HEADING
+        # (a short title, e.g. "Portfolio Website") from a project DESCRIPTION
+        # line (e.g. "Designed and deployed a personal portfolio site.").
+        _DESC_VERBS = {
+            "built", "developed", "designed", "implemented", "created",
+            "worked", "led", "managed", "architected", "engineered",
+            "integrated", "deployed", "wrote", "optimized", "improved",
+            "added", "fixed", "collaborated", "contributed", "achieved",
+            "automated", "reduced", "increased", "handled", "maintained",
+            "tested", "launched", "founded", "initiated", "developed,",
+            "responsible", "involved", "utilized", "used", "leveraged",
+        }
+
+        def _looks_like_description_sentence(line: str) -> bool:
+            """Heuristic: True if the line reads like prose (a description),
+            not a short heading/title.
+
+            Signals:
+            - Ends with sentence-terminal punctuation
+            - Is long (6+ words) — titles are almost always short
+            - Starts with a common past-tense/gerund action verb
+            """
+            s = line.strip()
+            if not s:
+                return False
+            if s.endswith(('.', ';')):
+                return True
+            words = s.split()
+            if len(words) >= 6:
+                return True
+            first_word = re.sub(r'[^A-Za-z]', '', words[0]).lower() if words else ''
+            if first_word in _DESC_VERBS:
+                return True
+            return False
+
+        def _looks_like_duration_line(line: str) -> bool:
+            """A standalone parenthesized duration, e.g. '(Jan 2024 - Mar 2024)'."""
+            s = line.strip()
+            return bool(re.match(r'^\(.{2,40}\)$', s))
+
         def _looks_like_project_header(line: str) -> bool:
             """A project header is a short standalone line without a leading bullet.
 
@@ -298,6 +453,7 @@ class ResumeExtractor:
             - Relatively short (< 120 chars)
             - Does not start with a lowercase letter (which would indicate continuation)
             - Not purely a percentage/CGPA/grade line
+            - Does not read like a description sentence (see _looks_like_description_sentence)
             """
             s = line.strip()
             if not s:
@@ -306,7 +462,11 @@ class ResumeExtractor:
                 return False
             if s[0].islower():
                 return False
+            if not (s[0].isalnum()):
+                return False
             if re.match(r'^(CGPA|Percentage|Grade|GPA)\s*:', s, re.IGNORECASE):
+                return False
+            if _looks_like_description_sentence(s):
                 return False
             return len(s) < 120
 
@@ -359,7 +519,7 @@ class ResumeExtractor:
 
             # Case 3: Non-bullet, non-date line
             else:
-                # Could be: project header, tech line, or description continuation
+                # Could be: project header, tech line, duration line, or description
                 if current_header is None:
                     # Start fresh entry
                     current_header = stripped
@@ -367,32 +527,31 @@ class ResumeExtractor:
                     current_desc = []
                     current_raw = [stripped]
                     awaiting_tech = True
+                elif _looks_like_duration_line(stripped) and not current_desc:
+                    # A standalone "(Jan 2024 - Mar 2024)" style line right after the
+                    # project title is metadata, not a new project or a description
+                    # bullet — fold it into the header.
+                    current_header = current_header.rstrip() + ' ' + stripped
+                    current_raw.append(stripped)
+                    # Still may be followed by a tech line
                 elif awaiting_tech and _looks_like_tech_line(stripped):
                     # Second line after header — treat as technology stack
                     current_tech_line = stripped
                     current_raw.append(stripped)
                     awaiting_tech = False
-                elif _looks_like_project_header(stripped) and not current_desc:
-                    # Looks like a new project name (no bullets seen yet for current)
-                    # Check if we should start a new entry or treat as sub-info
-                    # Heuristic: if current_header is already set and has content, new entry
-                    if current_header:
-                        entries.append({
-                            "header": current_header,
-                            "tech_line": current_tech_line,
-                            "description": current_desc,
-                            "raw_lines": current_raw
-                        })
-                        current_header = stripped
-                        current_tech_line = None
-                        current_desc = []
-                        current_raw = [stripped]
-                        awaiting_tech = True
-                    else:
-                        current_header = stripped
-                        current_raw.append(stripped)
-                elif _looks_like_project_header(stripped) and current_desc:
-                    # New project after bullets
+                elif _looks_like_description_sentence(stripped):
+                    # Reads like prose, not a title — always belongs to the
+                    # current project's description, regardless of whether any
+                    # bullets/tech-line have been seen yet (Style A support).
+                    sub_bullets = cls._split_inline_bullets(stripped)
+                    current_desc.extend(sub_bullets)
+                    current_raw.append(stripped)
+                    awaiting_tech = False
+                elif _looks_like_project_header(stripped) and (current_desc or current_tech_line or not awaiting_tech):
+                    # A genuine new project heading: only split here once the
+                    # current entry already has *some* content (a tech line or
+                    # description), so we don't mistake a project's subtitle/
+                    # second header line for a brand new project.
                     entries.append({
                         "header": current_header,
                         "tech_line": current_tech_line,
@@ -745,18 +904,7 @@ class ResumeExtractor:
                         extracted_skills.append(skill_clean)
 
         # 2. Scan the full text for common skills to ensure coverage
-        common_keywords = [
-            "python", "java", "c\\+\\+", "cpp", "c#", "go", "golang", "rust", "ruby",
-            "php", "javascript", "typescript", "html", "css", "sql", "nosql", "mongodb",
-            "postgresql", "mysql", "react", "angular", "vue", "node\\.js", "django",
-            "flask", "fastapi", "spring", "aws", "azure", "gcp", "docker", "kubernetes",
-            "git", "linux", "machine learning", "deep learning", "nlp", "tensorflow",
-            "pytorch", "pandas", "numpy", "scikit-learn", "mediapipe", "yolov8", "yolo",
-            "llvm", "clang", "opencv", "express\\.js", "express", "slam", "android",
-            "openCV", "llvm", "rest api", "rest apis"
-        ]
-
-        for kw in common_keywords:
+        for kw in COMMON_TECH_KEYWORDS:
             pattern = re.compile(rf'\b{kw}\b', re.IGNORECASE)
             for match in pattern.finditer(text):
                 matched_text = match.group(0)
