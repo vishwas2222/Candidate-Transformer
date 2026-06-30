@@ -1,24 +1,51 @@
 import { useRef, useState } from 'react';
 
-function FileDropZone({ label, accept, icon, file, onChange, optional = false }) {
+// ── File type validation ───────────────────────────────────────────────────────
+function getFileExt(filename) {
+  return filename.slice(filename.lastIndexOf('.')).toLowerCase();
+}
+
+function validateFile(file, accept) {
+  const allowed = accept.split(',').map(s => s.trim().toLowerCase());
+  const ext = getFileExt(file.name);
+  return allowed.includes(ext);
+}
+
+// ── Drop zone component ────────────────────────────────────────────────────────
+function FileDropZone({ label, accept, acceptLabel, icon, file, onChange, optional = false }) {
   const inputRef = useRef(null);
-  const [dragging, setDragging] = useState(false);
+  const [dragging, setDragging]   = useState(false);
+  const [typeError, setTypeError] = useState('');
+
+  const handleFile = (incoming) => {
+    if (!incoming) { onChange(null); setTypeError(''); return; }
+    if (!validateFile(incoming, accept)) {
+      setTypeError(
+        `"${incoming.name}" is not a valid ${acceptLabel} file. ` +
+        `Please upload a ${accept.toUpperCase().replace(/\./g, '')} file.`
+      );
+      return;
+    }
+    setTypeError('');
+    onChange(incoming);
+  };
 
   const handleDrop = (e) => {
     e.preventDefault();
     setDragging(false);
-    const dropped = e.dataTransfer.files[0];
-    if (dropped) onChange(dropped);
+    handleFile(e.dataTransfer.files[0] ?? null);
   };
 
   const zoneClass = [
     'upload-zone',
-    file ? 'has-file' : '',
-    dragging ? 'drag-over' : '',
-  ].join(' ');
+    file     ? 'has-file'   : '',
+    dragging ? 'drag-over'  : '',
+    typeError ? 'border-red-400 bg-red-50' : '',
+  ].filter(Boolean).join(' ');
 
   return (
     <div>
+      {/* Label row */}
       <div className="flex items-center justify-between mb-1.5">
         <span className="label">{label}</span>
         {optional && (
@@ -26,9 +53,10 @@ function FileDropZone({ label, accept, icon, file, onChange, optional = false })
         )}
       </div>
 
+      {/* Drop zone */}
       <div
         className={zoneClass}
-        onClick={() => inputRef.current?.click()}
+        onClick={() => { setTypeError(''); inputRef.current?.click(); }}
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
@@ -38,10 +66,34 @@ function FileDropZone({ label, accept, icon, file, onChange, optional = false })
           type="file"
           accept={accept}
           className="hidden"
-          onChange={(e) => e.target.files[0] && onChange(e.target.files[0])}
+          onChange={(e) => handleFile(e.target.files[0] ?? null)}
+          /* reset value so re-uploading the same filename fires onChange */
+          onClick={(e) => { e.target.value = ''; }}
         />
 
-        {file ? (
+        {/* Error state */}
+        {typeError ? (
+          <>
+            <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+              <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-semibold text-red-700">Wrong file type</p>
+              <p className="text-xs text-red-600 mt-0.5 max-w-xs">{typeError}</p>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setTypeError(''); }}
+                className="mt-2 text-xs font-medium text-red-500 hover:text-red-700 underline"
+              >
+                Try again
+              </button>
+            </div>
+          </>
+        ) : file ? (
+          /* File selected state */
           <>
             <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center">
               {icon}
@@ -56,13 +108,14 @@ function FileDropZone({ label, accept, icon, file, onChange, optional = false })
             </div>
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); onChange(null); }}
+              onClick={(e) => { e.stopPropagation(); handleFile(null); }}
               className="text-xs text-red-500 hover:text-red-700 font-medium mt-1"
             >
               Remove
             </button>
           </>
         ) : (
+          /* Empty state */
           <>
             <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
               {icon}
@@ -71,7 +124,9 @@ function FileDropZone({ label, accept, icon, file, onChange, optional = false })
               <p className="text-sm font-medium text-slate-600">
                 Drop file here or <span className="text-brand-600">browse</span>
               </p>
-              <p className="text-xs text-slate-400 mt-0.5">{accept.toUpperCase().replace('.', '')}</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Accepted: <span className="font-semibold">{accept.toUpperCase().replace(/\./g, '')}</span>
+              </p>
             </div>
           </>
         )}
@@ -80,6 +135,7 @@ function FileDropZone({ label, accept, icon, file, onChange, optional = false })
   );
 }
 
+// ── Icons ──────────────────────────────────────────────────────────────────────
 const PdfIcon = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -94,6 +150,7 @@ const CsvIcon = () => (
   </svg>
 );
 
+// ── Public component ───────────────────────────────────────────────────────────
 export default function UploadCard({ resumeFile, csvFile, onResumeChange, onCsvChange }) {
   return (
     <div className="card">
@@ -104,10 +161,12 @@ export default function UploadCard({ resumeFile, csvFile, onResumeChange, onCsvC
         </svg>
         <h2 className="section-title">Upload Files</h2>
       </div>
+
       <div className="card-body grid grid-cols-1 md:grid-cols-2 gap-5">
         <FileDropZone
           label="Resume PDF"
           accept=".pdf"
+          acceptLabel="PDF"
           icon={<PdfIcon />}
           file={resumeFile}
           onChange={onResumeChange}
@@ -115,6 +174,7 @@ export default function UploadCard({ resumeFile, csvFile, onResumeChange, onCsvC
         <FileDropZone
           label="Recruiter CSV"
           accept=".csv"
+          acceptLabel="CSV"
           icon={<CsvIcon />}
           file={csvFile}
           onChange={onCsvChange}

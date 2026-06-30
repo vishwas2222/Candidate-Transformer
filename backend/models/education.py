@@ -55,6 +55,24 @@ class Education:
         )
         cgpa, percentage, grade = cls._parse_meta(meta_lines)
 
+        # If percentage still empty, try to pull it from the raw header itself.
+        # Handles: "10th Grade - St. Marys - 2019 - 89.4%"
+        #          "Class X (CBSE) | 2019 | 85%"
+        #          "High School Diploma, City School 2021, 88%"
+        if not percentage and not cgpa:
+            # Pipe-separated: look at pipe segments
+            if '|' in header:
+                for seg in header.split('|'):
+                    pct_m = re.match(r'^\s*([\d.]+)\s*%\s*$', seg.strip())
+                    if pct_m:
+                        percentage = pct_m.group(1)
+                        break
+            # Trailing dash-% or comma-% pattern
+            if not percentage:
+                m = re.search(r'(?:,|-)\s*([\d.]+)\s*%\s*$', header)
+                if m:
+                    percentage = m.group(1)
+
         # school for backward compat
         school = institution or school_line
 
@@ -71,6 +89,7 @@ class Education:
             end_date=end_date,
             description=description,
         )
+
 
     @classmethod
     def from_raw_text(cls, text: str) -> 'Education':
@@ -118,10 +137,12 @@ class Education:
         """Parse degree, specialization, institution, dates from header line.
 
         Supported formats:
-        1. "B.E., Information Science & Engineering, 2023 – 2027" (inline date, comma-sep)
+        1. "B.E., Information Science & Engineering, 2023 \u2013 2027" (inline date, comma-sep)
         2. "Class XII, Sir mv pu college 2023"  (single year)
         3. "10th, school name 2021"
         4. "B.E. Information Science - School (Dates)"  (dash separated)
+        5. "Class X (CBSE) | 2019 | 85%"  (pipe-separated with inline percentage)
+        6. "High School Diploma, City School 2021, 88%"  (trailing inline percentage)
 
         Returns:
             Tuple (degree, specialization, institution, start_date, end_date)
@@ -135,11 +156,55 @@ class Education:
         if not header:
             return degree, specialization, institution, start_date, end_date
 
+        # ── Pre-process: pipe-separated format ──────────────────────────────
+        # e.g. "Class X (CBSE) | 2019 | 85%"  or  "Class XII | 2021 | 90.5%"
+        if '|' in header:
+            pipe_parts = [p.strip() for p in header.split('|')]
+            # First part is degree/school label
+            degree = pipe_parts[0].strip()
+            # Remaining parts: extract year and percentage
+            _year_found = ""
+            for part in pipe_parts[1:]:
+                year_m = re.match(r'^\s*(\d{4})\s*$', part)
+                pct_m  = re.match(r'^\s*([\d.]+)\s*%\s*$', part)
+                if year_m:
+                    _year_found = year_m.group(1)
+                elif pct_m:
+                    # Return percentage as a special marker in institution to be
+                    # picked up by from_dict. We encode it as a meta line instead.
+                    pass  # handled below via inline_pct extraction
+            if _year_found:
+                start_date = _year_found
+            # Strip any trailing percentage from degree string if accidentally included
+            degree = re.sub(r'\s*[\d.]+\s*%\s*$', '', degree).strip()
+            return degree, specialization, institution or school_line, start_date, end_date
+
+        # ── Capture and strip an inline trailing percentage before other parsing
+        # e.g. "High School Diploma, City School 2021, 88%"
+        # We strip it so the remaining patterns work cleanly.
+        _inline_pct = ""
+        header_no_pct = header
+        trailing_pct_m = re.search(r',?\s*([\d.]+)\s*%\s*$', header)
+        if trailing_pct_m:
+            _inline_pct = trailing_pct_m.group(1)
+            header_no_pct = header[:trailing_pct_m.start()].strip()
+
+        # ── Also capture inline trailing percentage in dash-separated score
+        # e.g. "10th Grade - St. Marys School - 2019 - 89.4%"
+        if not _inline_pct:
+            dash_pct_m = re.search(r'-\s*([\d.]+)\s*%\s*$', header)
+            if dash_pct_m:
+                _inline_pct = dash_pct_m.group(1)
+                header_no_pct = header[:dash_pct_m.start()].strip()
+
+        # Work on cleaned header from here
+        h = header_no_pct
+
         # Pattern 1: Comma-sep with inline date range
-        # e.g. "B.E., Information Science & Engineering, 2023 – 2027"
+        # e.g. "B.E., Information Science & Engineering, 2023 \u2013 2027"
         m = re.search(
-            r'^(.+?),\s*(.+?)\s+(\d{4})\s*(?:[-–]|to)\s*(Present|Current|Now|\d{4})\s*$',
-            header, re.IGNORECASE
+            r'^(.+?),\s*(.+?)\s+(\d{4})\s*(?:[-\u2013]|to)\s*(Present|Current|Now|\d{4})\s*$',
+            h, re.IGNORECASE
         )
         if m:
             pre_date = m.group(1).strip() + ', ' + m.group(2).strip()
@@ -152,13 +217,10 @@ class Education:
                 institution = ', '.join(parts[2:]) or school_line
             elif len(parts) == 2:
                 degree = parts[0]
-                # If school_line is provided separately, the second comma part is
-                # the specialization/field, not the institution
                 if school_line:
                     specialization = parts[1]
                     institution = school_line
                 else:
-                    # No school_line: second part is institution
                     specialization = ""
                     institution = parts[1]
             else:
@@ -166,64 +228,139 @@ class Education:
                 institution = school_line
             return degree, specialization, institution, start_date, end_date
 
-        # Pattern 2: Single-year at end — "Class XII, college name 2023"
-        m = re.search(r'^(.+?),\s*(.+?)\s+(\d{4})\s*$', header)
+        # Pattern 2: Single-year at end \u2014 "Class XII, college name 2023"
+        m = re.search(r'^(.+?),\s*(.+?)\s+(\d{4})\s*$', h)
         if m:
             degree = m.group(1).strip()
             institution = m.group(2).strip() or school_line
             start_date = m.group(3).strip()
             return degree, specialization, institution, start_date, end_date
 
-        # Pattern 3: "Degree - School (Dates)"
-        m = re.search(r'^(.*?)\s*-\s*([^(]+)(?:\s*\((.+?)\))?\s*$', header)
+        # Pattern 3: "Degree - School (Dates)" or "Degree - School - Year - Score%"
+        m = re.search(r'^(.*?)\s*-\s*([^(]+)(?:\s*\((.+?)\))?\s*$', h)
         if m:
             degree_part = m.group(1).strip()
             school_part = m.group(2).strip()
-            dates_str = m.group(3) or ""
+            dates_str   = m.group(3) or ""
             # degree_part may be "B.E., Information Science"
             deg_parts = [p.strip() for p in degree_part.split(',', 1)]
             degree = deg_parts[0]
             if len(deg_parts) > 1:
                 specialization = deg_parts[1]
-            institution = school_part or school_line
-            start_date, end_date = _parse_edu_date_range(dates_str)
+            # Strip trailing year from school_part if present (e.g. "2019" at end)
+            school_clean = re.sub(r'\s*-?\s*(19|20)\d{2}\s*$', '', school_part).strip()
+            # Extract year from school_part if dates_str is empty
+            if not dates_str and not start_date:
+                yr_m = re.search(r'\b(19|20)\d{2}\b', school_part)
+                if yr_m:
+                    start_date = yr_m.group(0)
+            institution = school_clean or school_line
+            if dates_str:
+                start_date, end_date = _parse_edu_date_range(dates_str)
             return degree, specialization, institution, start_date, end_date
 
         # Fallback: treat whole header as degree, school_line as institution
-        degree = header
+        degree = h
         institution = school_line
         return degree, specialization, institution, start_date, end_date
+
 
     @staticmethod
     def _parse_meta(meta_lines: List[str]):
         """Extract cgpa, percentage, grade from metadata lines.
 
+        Handles:
+          - "CGPA: 7.04/10"       -> cgpa
+          - "GPA: 3.8/4"          -> cgpa
+          - "Score: 8.2/10"       -> cgpa (treated as GPA-style)
+          - "Percentage: 96"      -> percentage
+          - "Marks: 456/500"      -> percentage (computed as 456/500*100)
+          - "Marks: 456/500 (91%)"-> percentage (extracts bracket value)
+          - "88.5%"               -> percentage (standalone)
+          - "Grade: A+"           -> grade
+
         Args:
-            meta_lines: Lines like ["CGPA: 7.04/ 10", "Percentage:96"]
+            meta_lines: Lines recognised as grade/score metadata.
 
         Returns:
             Tuple (cgpa, percentage, grade)
         """
-        cgpa = ""
+        cgpa       = ""
         percentage = ""
-        grade = ""
+        grade      = ""
 
         for line in meta_lines:
             lower = line.lower()
+
+            # ── CGPA / GPA ──────────────────────────────────────────────────
             if 'cgpa' in lower or 'gpa' in lower:
-                m = re.search(r'([\d.]+)\s*(?:/\s*[\d.]+)?', line)
+                # Handles: "CGPA: 7.04/10" and "CGPA 9.16/ 10 extra text"
+                m = re.search(r'(?:cgpa|gpa)\s*[:]?\s*(\d+(?:\.\d+)?)', line, re.IGNORECASE)
                 if m:
                     cgpa = m.group(1).strip()
-            elif 'percentage' in lower or '%' in line:
-                m = re.search(r'([\d.]+)\s*%?', line)
+                continue
+
+            # ── Score: 8.2/10  ─ treat like CGPA ────────────────────────────
+            if re.search(r'\bscore\s*:', line, re.IGNORECASE):
+                m = re.search(r'(\d+(?:\.\d+)?)\s*(?:/\s*\d+(?:\.\d+)?)?', line)
+                if m:
+                    cgpa = m.group(1).strip()
+                continue
+
+            # ── Marks: 456/500 (91%) or Marks: 456/500 ──────────────────────
+            if re.search(r'\bmarks\s*:', line, re.IGNORECASE):
+                # Prefer bracketed percentage if present
+                bracket = re.search(r'\(\s*([\d.]+)\s*%\s*\)', line)
+                if bracket:
+                    percentage = bracket.group(1).strip()
+                else:
+                    # Compute from numerator/denominator
+                    frac = re.search(r'([\d.]+)\s*/\s*([\d.]+)', line)
+                    if frac:
+                        try:
+                            pct = float(frac.group(1)) / float(frac.group(2)) * 100
+                            percentage = f"{pct:.1f}"
+                        except ZeroDivisionError:
+                            pass
+                    else:
+                        m = re.search(r'([\d.]+)', line)
+                        if m:
+                            percentage = m.group(1).strip()
+                continue
+
+            # ── Percentage: 96 or standalone 88.5% or compound line ───────────
+            if 'percentage' in lower or '%' in line:
+                # Prefer explicit percentage number before/after '%'
+                # e.g. "Percentage: 96%" or "State Board. Percentage: 93.8% City"
+                pct_m = re.search(r'percentage\s*:\s*(\d+(?:\.\d+)?)\s*%?', line, re.IGNORECASE)
+                if pct_m:
+                    percentage = pct_m.group(1).strip()
+                    continue
+                # Standalone bare percentage line like "88.5%" or "96%"
+                bare = re.match(r'^\s*(\d+(?:\.\d+)?)\s*%\s*$', line)
+                if bare:
+                    percentage = bare.group(1).strip()
+                    continue
+                # Any number followed immediately by % anywhere in the line
+                m = re.search(r'(\d+(?:\.\d+)?)\s*%', line)
                 if m:
                     percentage = m.group(1).strip()
-            elif 'grade' in lower:
+                    continue
+                # Last resort: first proper number after 'Percentage:'
+                m = re.search(r'(\d+(?:\.\d+)?)', line)
+                if m:
+                    percentage = m.group(1).strip()
+                continue
+
+            # ── Grade: A+ ────────────────────────────────────────────────────
+            if 'grade' in lower:
                 m = re.search(r':\s*(.+)', line)
                 if m:
                     grade = m.group(1).strip()
+                continue
 
         return cgpa, percentage, grade
+
 
 
 def _split_degree_parts(parts: List[str], school_line: str = ""):

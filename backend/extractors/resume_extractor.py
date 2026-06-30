@@ -860,14 +860,22 @@ class ResumeExtractor:
         current_raw = []
 
         # Patterns for metadata lines
-        CGPA_PAT = re.compile(r'(cgpa|gpa)\s*:', re.IGNORECASE)
-        PCT_PAT = re.compile(r'percentage\s*:', re.IGNORECASE)
-        GRADE_PAT = re.compile(r'grade\s*:', re.IGNORECASE)
-        YEAR_PAT = re.compile(r'\b(19|20)\d{2}\b')
+        # CGPA_PAT: matches both "CGPA: 7.04" and "CGPA 9.16" (no colon variant)
+        CGPA_PAT   = re.compile(r'(cgpa|gpa)\s*[:.]?\s*\d', re.IGNORECASE)
+        PCT_PAT    = re.compile(r'percentage\s*:', re.IGNORECASE)
+        GRADE_PAT  = re.compile(r'grade\s*:', re.IGNORECASE)
+        # Additional formats: "Score: 8.2/10", "Marks: 456/500", standalone "88.5%"
+        SCORE_PAT  = re.compile(r'(score|marks)\s*:', re.IGNORECASE)
+        INLINE_PCT = re.compile(r'^\s*\d+(?:\.\d+)?\s*%\s*$')  # lone percentage line
+        YEAR_PAT   = re.compile(r'\b(19|20)\d{2}\b')
         STANDALONE_YEAR_PAT = re.compile(r'^\s*(19|20)\d{2}\s*$')
 
         def _is_meta_line(s: str) -> bool:
-            return bool(CGPA_PAT.search(s) or PCT_PAT.search(s) or GRADE_PAT.search(s))
+            return bool(
+                CGPA_PAT.search(s) or PCT_PAT.search(s) or
+                GRADE_PAT.search(s) or SCORE_PAT.search(s) or
+                INLINE_PCT.match(s)
+            )
 
         # Tighter degree pattern — must match at start-of-string or after comma/space
         # so that "B.M.S." does NOT match (it requires the full abbreviated form).
@@ -876,16 +884,24 @@ class ResumeExtractor:
             r'(B\.E\b|B\.Tech\b|M\.Tech\b|M\.E\b|M\.S\b|B\.S\b|MBA\b|Ph\.D\b|'
             r'BCA\b|MCA\b|B\.Sc\b|M\.Sc\b|BE\b|BTech\b|MTech\b|BBA\b|'
             r'Class\s+X(?:II)?\b|10th\b|12th\b|Diploma\b|'
+            r'SSC\b|HSC\b|SSLC\b|Matriculation\b|'
+            r'Secondary\s+School\b|Higher\s+Secondary\b|High\s+School\b|'
             r'Bachelor(?:\'s)?\b|Master(?:\'s)?\b)',
             re.IGNORECASE
         )
 
         def _looks_like_school_name(s: str) -> bool:
-            """Heuristic: line has a school/college/university keyword."""
+            """Heuristic: line has a school/college/university keyword.
+            Also catches explicit 'School: ...' label-style lines.
+            """
             if BULLET_PATTERN.match(s):
                 return False
             if _is_meta_line(s):
                 return False
+            # 'School: XYZ' label — treat value part as school name
+            school_label_m = re.match(r'^school\s*:\s*(.+)', s, re.IGNORECASE)
+            if school_label_m:
+                return True
             if s[0].islower():
                 return False
             return bool(re.search(
@@ -902,6 +918,9 @@ class ResumeExtractor:
                 return False
             if _is_meta_line(s):
                 return False
+            # 'School: ...' label lines are never degree headers
+            if re.match(r'^school\s*:', s, re.IGNORECASE):
+                return False
             if s[0].islower():
                 return False
             if STANDALONE_YEAR_PAT.match(s):
@@ -915,6 +934,7 @@ class ResumeExtractor:
             if has_year and not _looks_like_school_name(s):
                 return True
             return False
+
 
 
         def _save_current():
@@ -941,11 +961,12 @@ class ResumeExtractor:
                     current_raw.append(stripped)
                 continue
 
-            # Meta lines (CGPA, Percentage, Grade)
+            # Meta lines (CGPA, Percentage, Grade, Score, Marks, standalone %)
             if _is_meta_line(stripped):
                 if current_header is not None:
                     current_meta.append(stripped)
                     current_raw.append(stripped)
+                # If no entry has started yet, silently skip (orphan meta before any degree).
                 continue
 
             # Standalone year -> append to previous header as end_date continuation
@@ -970,7 +991,9 @@ class ResumeExtractor:
             if (current_header is not None
                     and current_school is None
                     and _looks_like_school_name(stripped)):
-                current_school = stripped
+                # For 'School: XYZ' labels, strip the prefix
+                label_m = re.match(r'^school\s*:\s*(.+)', stripped, re.IGNORECASE)
+                current_school = label_m.group(1).strip() if label_m else stripped
                 current_raw.append(stripped)
                 continue
 

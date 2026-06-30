@@ -53,28 +53,28 @@
     "phones": [],
     "projects": [],
     "skills": [
-      "(English",
-      "Adobe",
-      "Angular",
-      "bilingual",
-      "CSS3",
-      "Docker",
-      "ES.Next",
-      "grew",
       "HTML5",
-      "Illustrator",
-      "Klingon)",
+      "CSS3",
       "Node.js",
-      "Photoshop",
+      "Angular",
+      "TypeScript",
+      "ES.Next",
+      "Docker",
       "proficient",
-      "TypeScript"
+      "Adobe",
+      "Photoshop",
+      "Illustrator",
+      "grew",
+      "bilingual",
+      "(English",
+      "Klingon)"
     ],
     "title": ""
   },
   "metadata": {
     "candidate_sources": 1,
-    "generated_at": "2026-06-30T15:33:25.163343Z",
-    "profile": "default",
+    "generated_at": "2026-06-30T17:12:06.331922Z",
+    "profile": "totally_unknown_profile",
     "schema_version": "1.0"
   }
 }
