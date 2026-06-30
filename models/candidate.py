@@ -21,11 +21,27 @@ class Candidate:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the candidate object to the standard output dictionary format.
-        
+
+        Experience, Education, and Project entries are preserved as typed objects
+        (not serialized) so that the normalization pipeline and merger can work
+        with them directly.
+
         Returns:
-            Dict[str, Any]: The exact standard output dictionary representation.
+            Dict[str, Any]: The standard output dictionary representation.
         """
-        return asdict(self)
+        return {
+            "full_name": self.full_name,
+            "emails": list(self.emails),
+            "phones": list(self.phones),
+            "headline": self.headline,
+            "current_company": self.current_company,
+            "title": self.title,
+            "skills": list(self.skills),
+            "experience": list(self.experience),
+            "education": list(self.education),
+            "projects": list(self.projects),
+            "source": self.source,
+        }
 
 @dataclass
 class CandidateField:

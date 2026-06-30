@@ -6,6 +6,8 @@ from parsers.base_parser import (
     ParserEmptyFileError,
     ParserInvalidFormatError,
 )
+from models.experience import Experience
+from models.education import Education
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
@@ -44,8 +46,21 @@ def test_valid_resume(tmp_path):
     assert data["phones"] == ["555-123-4567"]
     assert "Python" in data["skills"]
     assert "Java" in data["skills"]
-    assert any("Developer at Google" in line for line in data["experience"])
-    assert any("Stanford" in line for line in data["education"])
+    # experience is now a list of Experience objects
+    exp_entries = data["experience"]
+    assert len(exp_entries) >= 1
+    assert any(
+        (isinstance(e, Experience) and "Google" in (e.company + e.title + e.raw_text))
+        or (isinstance(e, dict) and "Google" in str(e))
+        for e in exp_entries
+    )
+    # education is now a list of Education objects
+    edu_entries = data["education"]
+    assert any(
+        (isinstance(e, Education) and "Stanford" in (e.institution + e.school + e.raw_text))
+        or (isinstance(e, dict) and "Stanford" in str(e))
+        for e in edu_entries
+    )
     assert data["source"] == "valid_resume.pdf"
 
 def test_missing_resume():
