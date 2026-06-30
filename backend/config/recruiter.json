@@ -1,9 +1,13 @@
 {
     "profile": "recruiter",
     "include_fields": [
+        "candidate_id",
         "full_name",
         "emails",
         "phones",
+        "location",
+        "links",
+        "years_experience",
         "skills",
         "experience",
         "education"

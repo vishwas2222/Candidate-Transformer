@@ -198,6 +198,16 @@ class ResumeParser(BaseParser):
         for proj in project_objects:
             logger.info(f"Project: {proj.project_name}")
 
+        # ── New fields ────────────────────────────────────────────────────────
+        logger.info("Extracting Links")
+        links = ResumeExtractor.extract_links(self.text)
+
+        logger.info("Extracting Location")
+        location = ResumeExtractor.extract_location(self.text, sections)
+
+        logger.info("Calculating Years of Experience")
+        years_experience = ResumeExtractor.extract_years_experience(experience_objects)
+
         # ── Populate Candidate ────────────────────────────────────────────────
         candidate = Candidate(
             full_name=name,
@@ -211,6 +221,10 @@ class ResumeParser(BaseParser):
             education=education_objects,
             projects=project_objects,
             source=source_name,
+            location=location,
+            links=links,
+            years_experience=years_experience,
         )
 
         return candidate.to_dict()
+

@@ -31,8 +31,14 @@ def format_canonical_candidate(cc) -> str:
     lines = ["\nCanonical Candidate Profile", SEP]
 
     for key, field_meta in cc.__dict__.items():
-        val = field_meta.value
         lines.append(f"  {key.upper()}")
+
+        # Plain scalar (e.g. overall_confidence: float) — not a CandidateField
+        if not hasattr(field_meta, "value"):
+            lines.append(f"    Value      : {field_meta}")
+            continue
+
+        val = field_meta.value
 
         # ── Scalar fields ──────────────────────────────────────────
         if isinstance(val, str) or not hasattr(val, '__iter__'):

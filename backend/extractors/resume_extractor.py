@@ -1,6 +1,9 @@
 import re
-from typing import List, Dict, Any
-from extractors.regex_patterns import EMAIL_PATTERN, PHONE_PATTERN
+from typing import List, Dict, Any, Optional
+from extractors.regex_patterns import (
+    EMAIL_PATTERN, PHONE_PATTERN,
+    LINKEDIN_PATTERN, GITHUB_PATTERN, PORTFOLIO_PATTERN,
+)
 
 # Keywords used to identify section boundaries in the resume text
 EXPERIENCE_KEYWORDS = [
@@ -1379,3 +1382,190 @@ class ResumeExtractor:
         """
         raw_lines = sections.get("projects", [])
         return cls._group_project_entries(raw_lines)
+
+    # ── New extraction methods (assignment schema) ────────────────────────────
+
+    @classmethod
+    def extract_links(cls, text: str) -> Dict[str, Any]:
+        """Extracts LinkedIn, GitHub, and portfolio URLs from raw resume text.
+
+        Args:
+            text (str): Full raw resume text.
+
+        Returns:
+            Dict with keys: linkedin (str), github (str), portfolio (str), other (list[str])
+        """
+        links: Dict[str, Any] = {
+            "linkedin":  "",
+            "github":    "",
+            "portfolio": "",
+            "other":     [],
+        }
+
+        linkedin_matches = LINKEDIN_PATTERN.findall(text)
+        if linkedin_matches:
+            links["linkedin"] = linkedin_matches[0].rstrip('/')
+
+        github_matches = GITHUB_PATTERN.findall(text)
+        if github_matches:
+            links["github"] = github_matches[0].rstrip('/')
+
+        portfolio_matches = PORTFOLIO_PATTERN.findall(text)
+        for url in portfolio_matches:
+            url = url.rstrip('/')
+            # Skip if already captured as linkedin or github
+            if url == links["linkedin"] or url == links["github"]:
+                continue
+            # First non-social URL becomes portfolio; rest go to other[]
+            if not links["portfolio"]:
+                links["portfolio"] = url
+            elif url not in links["other"]:
+                links["other"].append(url)
+
+        return links
+
+    @classmethod
+    def extract_location(cls, text: str, sections: Dict[str, List[str]]) -> Dict[str, str]:
+        """Extracts city, region, and country from the resume header area.
+
+        Looks at the first ~10 lines (the header block) for location-like text.
+        Typical resume header formats:
+          - "Bangalore, Karnataka, India"
+          - "Bengaluru, Karnataka"
+          - "Mumbai | Maharashtra"
+          - "Location: New Delhi, India"
+
+        Args:
+            text (str): Full raw resume text.
+            sections (Dict): Parsed sections (header lines used first).
+
+        Returns:
+            Dict with keys: city (str), region (str), country (str)
+        """
+        location: Dict[str, str] = {"city": "", "region": "", "country": ""}
+
+        # Known Indian state names (most common resume origin)
+        INDIAN_STATES = {
+            "karnataka", "maharashtra", "tamil nadu", "uttar pradesh",
+            "west bengal", "gujarat", "rajasthan", "madhya pradesh",
+            "andhra pradesh", "telangana", "kerala", "odisha", "bihar",
+            "punjab", "haryana", "jharkhand", "assam", "chhattisgarh",
+            "uttarakhand", "himachal pradesh", "goa", "delhi",
+        }
+        # Common city / region aliases
+        CITY_ALIASES = {
+            "bengaluru": "Bangalore", "banglore": "Bangalore",
+            "bombay": "Mumbai", "madras": "Chennai", "calcutta": "Kolkata",
+        }
+
+        # Candidate header lines: first 10 non-empty lines of header section
+        header_lines = [l.strip() for l in sections.get("header", []) if l.strip()][:10]
+        # Also try first 10 lines of full text
+        all_first_lines = [l.strip() for l in text.split("\n") if l.strip()][:10]
+        search_lines = header_lines + all_first_lines
+
+        # Pattern: "City, State" or "City, State, Country" or "City | State"
+        LOC_PAT = re.compile(
+            r'([A-Z][a-zA-Z ]{2,20})\s*[,|]\s*([A-Z][a-zA-Z ]{2,20})'  # city, state
+            r'(?:\s*[,|]\s*([A-Z][a-zA-Z ]{2,20}))?',                   # optional country
+        )
+        # Pattern: "Location: ..."
+        LABEL_PAT = re.compile(r'location\s*:?\s*(.+)', re.IGNORECASE)
+
+        for line in search_lines:
+            # Skip lines that look like they contain email or phone
+            if '@' in line or re.search(r'\d{7,}', line):
+                continue
+            # Skip lines that are URLs
+            if line.startswith('http') or 'github' in line.lower() or 'linkedin' in line.lower():
+                continue
+
+            # Try label pattern first
+            label_m = LABEL_PAT.match(line)
+            if label_m:
+                line = label_m.group(1).strip()
+
+            loc_m = LOC_PAT.search(line)
+            if loc_m:
+                city   = loc_m.group(1).strip()
+                region = loc_m.group(2).strip()
+                country = loc_m.group(3).strip() if loc_m.group(3) else ""
+
+                # Apply city alias normalisation
+                city_lower = city.lower()
+                city = CITY_ALIASES.get(city_lower, city)
+
+                # If region matches a known Indian state and no country set → India
+                if region.lower() in INDIAN_STATES and not country:
+                    country = "India"
+
+                # Only accept if city looks like a real word (not a skill or section heading)
+                if len(city) > 2 and not any(c.isdigit() for c in city):
+                    location["city"]    = city
+                    location["region"]  = region
+                    location["country"] = country
+                    break
+
+        return location
+
+    @staticmethod
+    def extract_years_experience(experience_list: list) -> Optional[float]:
+        """Calculates total years of experience from a list of Experience objects.
+
+        Sums up the duration of each role. Roles with 'Present'/'Current' end
+        dates are measured up to today. Overlapping roles are NOT deduplicated
+        (conservative estimate — industry standard).
+
+        Args:
+            experience_list: List of Experience dataclass objects.
+
+        Returns:
+            Rounded total years (1 decimal place), or None if no dates found.
+        """
+        import datetime
+
+        today = datetime.date.today()
+        total_months = 0
+        counted = 0
+
+        def _parse_ym(date_str: str) -> Optional[datetime.date]:
+            """Parse YYYY-MM or YYYY into a date object."""
+            if not date_str:
+                return None
+            date_str = date_str.strip()
+            if date_str.lower() in ("present", "current", "now", "ongoing", "till date"):
+                return today
+            # YYYY-MM
+            m = re.match(r'^(\d{4})-(\d{2})$', date_str)
+            if m:
+                return datetime.date(int(m.group(1)), int(m.group(2)), 1)
+            # YYYY only
+            m = re.match(r'^(\d{4})$', date_str)
+            if m:
+                return datetime.date(int(m.group(1)), 1, 1)
+            return None
+
+        for exp in experience_list:
+            # exp may be an Experience dataclass or a dict
+            if hasattr(exp, 'start_date'):
+                start_str = exp.start_date or ""
+                end_str   = exp.end_date   or "Present"
+            elif isinstance(exp, dict):
+                start_str = exp.get('start_date', '') or ''
+                end_str   = exp.get('end_date',   '') or 'Present'
+            else:
+                continue
+
+            start = _parse_ym(start_str)
+            end   = _parse_ym(end_str)
+
+            if start and end and end >= start:
+                months = (end.year - start.year) * 12 + (end.month - start.month)
+                total_months += max(months, 0)
+                counted += 1
+
+        if counted == 0:
+            return None
+
+        years = round(total_months / 12, 1)
+        return years

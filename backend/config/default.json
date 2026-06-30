@@ -1,16 +1,21 @@
 {
     "profile": "default",
     "include_fields": [
+        "candidate_id",
         "full_name",
         "emails",
         "phones",
         "headline",
+        "location",
+        "links",
         "current_company",
         "title",
+        "years_experience",
         "skills",
         "experience",
         "education",
-        "projects"
+        "projects",
+        "overall_confidence"
     ],
     "exclude_fields": [],
     "include_confidence": false,

@@ -26,8 +26,8 @@ export default function App() {
 
   // ── Transform ──────────────────────────────────────────────────────────────
   const handleTransform = async () => {
-    if (!resumeFile) {
-      setError('Please upload a resume PDF before transforming.');
+    if (!resumeFile && !csvFile) {
+      setError('Please upload at least a Resume PDF or a Recruiter CSV before transforming.');
       return;
     }
     setError(null);
@@ -91,7 +91,7 @@ export default function App() {
                 id="btn-transform"
                 type="button"
                 onClick={handleTransform}
-                disabled={loading || !resumeFile}
+                disabled={loading || (!resumeFile && !csvFile)}
                 className="btn-primary flex items-center gap-2 px-8 py-3 text-base"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

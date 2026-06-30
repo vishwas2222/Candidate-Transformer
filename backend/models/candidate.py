@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from .experience import Experience
 from .education import Education
 from .project import Project
@@ -18,17 +18,13 @@ class Candidate:
     education: List[str] = field(default_factory=list)
     projects: List[str] = field(default_factory=list)
     source: str = ""
+    # New fields
+    location: Dict[str, str] = field(default_factory=dict)    # {city, region, country}
+    links: Dict[str, Any] = field(default_factory=dict)       # {linkedin, github, portfolio, other[]}
+    years_experience: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert the candidate object to the standard output dictionary format.
-
-        Experience, Education, and Project entries are preserved as typed objects
-        (not serialized) so that the normalization pipeline and merger can work
-        with them directly.
-
-        Returns:
-            Dict[str, Any]: The standard output dictionary representation.
-        """
+        """Convert the candidate object to the standard output dictionary format."""
         return {
             "full_name": self.full_name,
             "emails": list(self.emails),
@@ -41,6 +37,9 @@ class Candidate:
             "education": list(self.education),
             "projects": list(self.projects),
             "source": self.source,
+            "location": self.location,
+            "links": self.links,
+            "years_experience": self.years_experience,
         }
 
 @dataclass
@@ -64,13 +63,21 @@ class CanonicalCandidate:
     
     Every field is a CandidateField containing the value, confidence, and sources.
     """
-    full_name: CandidateField = field(default_factory=lambda: CandidateField("", 0.0))
-    emails: CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
-    phones: CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
-    headline: CandidateField = field(default_factory=lambda: CandidateField("", 0.0))
-    current_company: CandidateField = field(default_factory=lambda: CandidateField("", 0.0))
-    title: CandidateField = field(default_factory=lambda: CandidateField("", 0.0))
-    skills: CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
-    experience: CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
-    education: CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
-    projects: CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
+    # ── Existing fields ──────────────────────────────────────────────────────
+    full_name:       CandidateField = field(default_factory=lambda: CandidateField("",  0.0))
+    emails:          CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
+    phones:          CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
+    headline:        CandidateField = field(default_factory=lambda: CandidateField("",  0.0))
+    current_company: CandidateField = field(default_factory=lambda: CandidateField("",  0.0))
+    title:           CandidateField = field(default_factory=lambda: CandidateField("",  0.0))
+    skills:          CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
+    experience:      CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
+    education:       CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
+    projects:        CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
+
+    # ── New fields (assignment schema) ───────────────────────────────────────
+    candidate_id:     CandidateField = field(default_factory=lambda: CandidateField("",  1.0))
+    location:         CandidateField = field(default_factory=lambda: CandidateField({},  0.0))
+    links:            CandidateField = field(default_factory=lambda: CandidateField({},  0.0))
+    years_experience: CandidateField = field(default_factory=lambda: CandidateField(None, 0.0))
+    overall_confidence: float = 0.0   # top-level scalar — not a CandidateField
