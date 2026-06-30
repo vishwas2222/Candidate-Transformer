@@ -1,15 +1,14 @@
-# Multi-Source Candidate Data Transformer (Part 1)
+# Multi-Source Candidate Data Transformer (Part 1 & 2)
 
-An interview-ready, production-grade Python library for reading multiple structured and unstructured candidate sources and extracting key details into a unified dictionary structure.
+An interview-ready, production-grade Python library for reading multiple structured and unstructured candidate sources, extracting details, and merging them into a unified, high-confidence Canonical Candidate Profile.
+
+---
 
 ## Project Overview
 
-This module represents **Part 1 (Input & Data Extraction Layer)** of a multi-module Candidate Data Pipeline. It is solely responsible for loading candidate files, extracting relevant textual details using rules, heuristics, and regex patterns (without calling external AI/LLM models), and compiling this data into a standardized schema representation.
-
-Key constraints respected:
-* **No cleaning or normalization** is performed (e.g. phone formats are left unmodified, skills are not canonicalized).
-* **No merging, deduplication, schema validation, confidence scoring, or provenance tracking** is implemented (reserved for future modules).
-* **Robust error handling**: custom parser exceptions are raised for missing files, empty inputs, corrupted PDFs, and malformed CSV rows. It never crashes.
+This system is divided into two distinct components:
+1. **Input & Data Extraction Layer (Part 1)**: Loads candidate files (Recruiter CSVs and Resume PDFs), segments text (without calling external AI/LLMs), and extracts candidates.
+2. **Transformation Engine (Part 2)**: Standardizes data values, performs deduplication, executes cross-file merges with priority rules, resolves source conflicts, calculates confidence scores, and captures provenance records at the field level.
 
 ---
 
@@ -23,9 +22,9 @@ candidate_transformer/
 │
 ├── parsers/
 │      __init__.py
-│      base_parser.py          # Abstract base parser class & custom exceptions
-│      csv_parser.py           # Parser implementation for recruiter CSVs
-│      resume_parser.py        # Parser implementation for Resume PDFs
+│      base_parser.py          # Abstract base parser & custom exceptions
+│      csv_parser.py           # Parser for recruiter CSVs
+│      resume_parser.py        # Parser for Resume PDFs
 │
 ├── extractors/
 │      __init__.py
@@ -34,15 +33,39 @@ candidate_transformer/
 │
 ├── models/
 │      __init__.py
-│      candidate.py            # Candidate dataclass modeling the target schema
+│      candidate.py            # Unified candidate model and CanonicalCandidate
+│      experience.py           # Structured professional experience dataclass
+│      education.py            # Structured education details dataclass
+│
+├── transformers/
+│      __init__.py
+│      base_normalizer.py      # Abstract BaseNormalizer interface
+│      phone_normalizer.py     # Phone standardizer (digits-only, preserves +)
+│      email_normalizer.py     # Lowercases and trims email values
+│      skill_normalizer.py     # Maps raw skills to canonical names (e.g. cpp -> C++)
+│      company_normalizer.py   # Cleans legal suffixes and resolves abbreviations
+│      date_normalizer.py      # Standardizes date strings to YYYY-MM
+│      text_normalizer.py      # Handles whitespaces and capitalization formatting
+│      normalization_pipeline.py # Orchestrates normalizers and deduplicates profiles
+│
+├── merger/
+│      __init__.py
+│      candidate_merger.py     # Coordinates profile merging
+│      conflict_resolver.py    # Resolves scalar conflicts via source priorities
+│      confidence_engine.py    # Assigns and calculates highest confidence scores
+│      provenance_tracker.py   # Records original source file origins
 │
 ├── tests/
-│      test_csv_parser.py      # Unit tests for CSV parser
-│      test_resume_parser.py   # Unit tests for Resume PDF parser
+│      test_csv_parser.py      # Part 1: CSV parser test suite
+│      test_resume_parser.py   # Part 1: PDF parser test suite
+│      test_normalization.py   # Part 2: Normalizers & pipeline test suite
+│      test_merge.py           # Part 2: Merging (union/append) test suite
+│      test_conflict_resolution.py # Part 2: Priorities & confidence test suite
 │
 ├── utils/
-│      file_utils.py           # File helper utilities (existence, size, etc.)
-│      logger.py               # Custom console logger configuration
+│      __init__.py
+│      file_utils.py           # Filesystem helper utilities
+│      logger.py               # Custom Stream Logger configuration
 │
 ├── main.py                    # CLI application entrypoint
 ├── requirements.txt           # Main dependency list
@@ -53,18 +76,18 @@ candidate_transformer/
 
 ## Requirements
 
-The project targets Python 3.11+ and uses the following external dependencies:
-* `pdfplumber` (for high-fidelity PDF text extraction)
-* `pandas` (for robust CSV loading and verification)
+The project targets Python 3.11+ and uses the following dependencies:
+* `pdfplumber` (for PDF text extraction)
+* `pandas` (for CSV loading and column verification)
 * `pytest` (for unit testing)
-* `python-docx` (included for future Word document parsing support)
-* `PyPDF2` (included for additional PDF operation support)
+* `python-docx` (Word document parsing support)
+* `PyPDF2` (additional PDF operations support)
 
 ---
 
 ## Installation
 
-Create a virtual environment and install the dependencies listed in `requirements.txt`:
+Create a virtual environment and install the dependencies:
 
 ```bash
 # 1. Create a virtual environment
@@ -81,9 +104,9 @@ pip install -r requirements.txt
 
 ## How to Run
 
-### Execute the Parser Pipeline (CLI)
+### Execute the CLI Pipeline
 
-Run the CLI using the Python environment. It reads the sample CSV and Resume files in the `inputs/` directory and prints their unified schemas:
+Run the CLI using the Python environment. It reads the inputs, parses, normalizes, merges, and displays the Canonical Candidate Profile:
 
 ```bash
 python main.py
@@ -91,7 +114,7 @@ python main.py
 
 ### Run Unit Tests
 
-Execute the test suite with `pytest` (making sure python has the project root in its path):
+Execute the full test suite with `pytest`:
 
 ```bash
 python -m pytest
@@ -99,62 +122,47 @@ python -m pytest
 
 ---
 
-## How Parsers Work
+## How the Transformation Engine Works
 
-### 1. BaseParser & Custom Exceptions
-All parsers inherit from `BaseParser` (defined in `parsers/base_parser.py`) and implement `load()` and `parse()`. Errors encountered are mapped to standard custom exceptions:
-* `ParserFileNotFoundError`: The target file is missing.
-* `ParserEmptyFileError`: The file exists but contains 0 bytes or contains no parseable records/text.
-* `ParserInvalidFormatError`: The file is corrupted (PDF structure breaks) or has wrong columns (CSV schema mismatch).
+### 1. Normalization Pipeline
+* **Phone**: Strips non-digit chars, preserving leading `+` country codes.
+* **Email**: Lowercases and strips surrounding spaces.
+* **Skill**: Maps aliases (e.g., `cpp`/`c plus plus` -> `C++`, `py` -> `Python`).
+* **Company**: Removes legal suffixes (e.g. `LLC`, `Inc.`) and resolves acronyms (e.g., `AWS` -> `Amazon Web Services`).
+* **Date**: Parses strings like `Jan 2024`, `01/2024`, and `2024 January` to `2024-01`.
+* **Experience & Education**: Parses raw lines into structured dataclass objects (`Experience`, `Education`) containing fields for company/school, job/degree, start/end dates, and raw text.
+* **Deduplication**: Automatically removes duplicate elements from lists (emails, phones, skills) using normalized values.
 
-### 2. CSV Parser
-* Loads target CSVs using `pandas` (passing `dtype=str` to preserve exact representation and avoid float conversion issues).
-* Checks for the presence of required headers: `Name`, `Email`, `Phone`, `Company`, `Title`.
-* Extracts the first record and maps it to the standard dictionary schema.
+### 2. Merger
+* **List Fields**: Merges using `UNION` rules (unique elements collected across all sources).
+* **Work/Education Fields**: Merges using `APPEND` rules (concatenates history listings from all sources).
+* **Scalar Fields**: Merges using `Conflict Resolution` rules. If values differ, it selects the higher-priority source.
 
-### 3. Resume Parser
-* Opens PDF documents using `pdfplumber` and extracts text from pages.
-* Segments raw resume text into logical sections (`Experience`, `Education`, `Skills`, `Header`) by scanning for standard section headers (e.g. `"professional experience"`, `"academic background"`).
-* Uses compiled regexes (e.g. `EMAIL_PATTERN`, `PHONE_PATTERN`) to extract contact details.
-* Implements case-insensitive keywords and substring matching to extract candidate skills, ensuring exact text cases in the PDF are returned without modification.
-* Returns lines belonging to the `Experience` and `Education` blocks as raw lists of strings.
+### 3. Conflict Resolution & Confidence
+* **Priority Rule**: Set in `merger/conflict_resolver.py`. Currently configured as `Recruiter CSV` > `Resume PDF`.
+* **Confidence Calculation**: Recruiter CSV values start with `1.00` confidence, and Resume PDF values start with `0.90`. When merging, the system selects the highest confidence score among contributing values.
+
+### 4. Provenance Tracking
+* Every attribute in the final profile is wrapped in a `FieldMetadata` object containing:
+  * `value`: The normalized, merged scalar or list value.
+  * `confidence`: The calculated confidence score.
+  * `sources`: A list of original source filenames that contributed to that value.
 
 ---
 
-## Unified Candidate Output Schema
+## Canonical Candidate Profile Schema
 
-Every parser returns exactly the following structure (no additional fields):
+The output of the merger is a single `CanonicalCandidate` dataclass object, structured as follows:
 
-```json
-{
-    "full_name": "Jane Smith",
-    "emails": ["jane.smith@gmail.com"],
-    "phones": ["123-456-7890"],
-    "headline": "",
-    "current_company": "",
-    "title": "",
-    "skills": ["Python", "C++", "SQL", "Docker", "AWS", "Git"],
-    "experience": [
-        "Senior Software Engineer at Amazon (2022 - Present)",
-        "- Led a team of 4 engineers to rebuild the order processing system using Python and AWS.",
-        "- Reduced latency by 30% and increased throughput by 50%.",
-        "Software Engineer at Microsoft (2020 - 2022)",
-        "- Developed and maintained core API services using C++ and SQL.",
-        "- Wrote unit tests and improved test coverage from 60% to 85%."
-    ],
-    "education": [
-        "M.S. in Computer Science - Stanford University (2018 - 2020)",
-        "B.S. in Computer Science - University of California, Berkeley (2014 - 2018)"
-    ],
-    "source": "sample_resume.pdf"
-}
+```text
+CanonicalCandidate
+├── full_name       : FieldMetadata(value="John Doe", confidence=1.00, sources=["recruiter.csv"])
+├── emails          : FieldMetadata(value=["john@gmail.com", "jane@gmail.com"], confidence=1.00, sources=["recruiter.csv", "sample_resume.pdf"])
+├── phones          : FieldMetadata(value=["9876543210"], confidence=1.00, sources=["recruiter.csv"])
+├── headline        : FieldMetadata(value="", confidence=0.00, sources=[])
+├── current_company : FieldMetadata(value="Google", confidence=1.00, sources=["recruiter.csv"])
+├── title           : FieldMetadata(value="SDE", confidence=1.00, sources=["recruiter.csv"])
+├── skills          : FieldMetadata(value=["Python", "C++", "Docker"], confidence=0.90, sources=["sample_resume.pdf"])
+├── experience      : FieldMetadata(value=[Experience(...)], confidence=0.90, sources=["sample_resume.pdf"])
+└── education       : FieldMetadata(value=[Education(...)], confidence=0.90, sources=["sample_resume.pdf"])
 ```
-
----
-
-## Future Modules (Out of Scope for Part 1)
-* **Normalizer**: Standardizing phone numbers to E.164 formats, normalizing skills to canonical synonyms (e.g., `cpp` -> `C++`), and correcting casing of names.
-* **Merger**: Collating candidates across multiple files, deduplicating candidate entities, and handling attribute conflict resolution.
-* **Confidence Scorer**: Calculating extraction and parser confidence scores based on text alignment indicators.
-* **Provenance Tracker**: Keeping records of exact source lines and parser identifiers responsible for each field entry.
-# Candidate-Transformer
