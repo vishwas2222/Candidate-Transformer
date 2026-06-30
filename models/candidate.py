@@ -2,6 +2,7 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Any
 from .experience import Experience
 from .education import Education
+from .project import Project
 
 @dataclass
 class Candidate:
@@ -15,6 +16,7 @@ class Candidate:
     skills: List[str] = field(default_factory=list)
     experience: List[str] = field(default_factory=list)
     education: List[str] = field(default_factory=list)
+    projects: List[str] = field(default_factory=list)
     source: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -26,22 +28,33 @@ class Candidate:
         return asdict(self)
 
 @dataclass
-class FieldMetadata:
-    """Class containing value and metadata (confidence, sources) for a profile field."""
+class CandidateField:
+    """Dataclass wrapping a field's value with confidence score and source provenance.
+    
+    Every field in the CanonicalCandidate stores its value, confidence,
+    contributing sources, and normalization status internally using this class.
+    """
     value: Any = None
     confidence: float = 0.0
     sources: List[str] = field(default_factory=list)
+    normalized: bool = True
+
+# Backward-compatible alias so existing imports still work
+FieldMetadata = CandidateField
 
 @dataclass
 class CanonicalCandidate:
-    """Dataclass representing the merged canonical candidate profile."""
-    full_name: FieldMetadata = field(default_factory=lambda: FieldMetadata("", 0.0))
-    emails: FieldMetadata = field(default_factory=lambda: FieldMetadata([], 0.0))
-    phones: FieldMetadata = field(default_factory=lambda: FieldMetadata([], 0.0))
-    headline: FieldMetadata = field(default_factory=lambda: FieldMetadata("", 0.0))
-    current_company: FieldMetadata = field(default_factory=lambda: FieldMetadata("", 0.0))
-    title: FieldMetadata = field(default_factory=lambda: FieldMetadata("", 0.0))
-    skills: FieldMetadata = field(default_factory=lambda: FieldMetadata([], 0.0))
-    experience: FieldMetadata = field(default_factory=lambda: FieldMetadata([], 0.0))
-    education: FieldMetadata = field(default_factory=lambda: FieldMetadata([], 0.0))
-
+    """Dataclass representing the merged canonical candidate profile.
+    
+    Every field is a CandidateField containing the value, confidence, and sources.
+    """
+    full_name: CandidateField = field(default_factory=lambda: CandidateField("", 0.0))
+    emails: CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
+    phones: CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
+    headline: CandidateField = field(default_factory=lambda: CandidateField("", 0.0))
+    current_company: CandidateField = field(default_factory=lambda: CandidateField("", 0.0))
+    title: CandidateField = field(default_factory=lambda: CandidateField("", 0.0))
+    skills: CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
+    experience: CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
+    education: CandidateField = field(default_factory=lambda: CandidateField([], 0.0))
+    projects: CandidateField = field(default_factory=lambda: CandidateField([], 0.0))

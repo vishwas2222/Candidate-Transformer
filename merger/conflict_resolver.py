@@ -21,6 +21,9 @@ class ConflictResolver:
             }
         else:
             self.source_priorities = {k.lower(): v for k, v in source_priorities.items()}
+        
+        # Records of every conflict encountered, available for merge-summary reporting
+        self.conflicts: list = []
 
     def resolve(self, field_name: str, val1: Any, source1: str, val2: Any, source2: str) -> Tuple[Any, str]:
         """Resolves a conflict between two field values based on source priority rules.
@@ -52,7 +55,7 @@ class ConflictResolver:
             return val1, source1
 
         # Conflict detected! Log the event
-        logger.info(f"Conflict detected")
+        logger.info("Conflict detected")
         
         # Determine priority scores (default to 99 if unknown source)
         p1 = 99
@@ -69,8 +72,22 @@ class ConflictResolver:
 
         if p1 <= p2:
             winner_val, winner_src = val1, source1
+            reason = f"{os.path.basename(source1) or 'Source 1'} has higher priority."
         else:
             winner_val, winner_src = val2, source2
+            reason = f"{os.path.basename(source2) or 'Source 2'} has higher priority."
 
-        logger.info(f"Conflict resolved")
+        self.conflicts.append({
+            "field": field_name,
+            "old_value": val1,
+            "new_value": val2,
+            "winner": winner_val,
+            "reason": reason,
+        })
+
+        logger.info(
+            f"Conflict | Field: {field_name} | Old Value: {val1} | "
+            f"New Value: {val2} | Winner: {winner_val} | Reason: {reason}"
+        )
+        logger.info("Conflict resolved")
         return winner_val, winner_src

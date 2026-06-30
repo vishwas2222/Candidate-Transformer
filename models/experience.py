@@ -1,5 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import re
+from typing import List
 
 @dataclass
 class Experience:
@@ -7,36 +8,40 @@ class Experience:
     raw_text: str
     company: str = ""
     title: str = ""
+    location: str = ""
     start_date: str = ""
     end_date: str = ""
+    description: List[str] = field(default_factory=list)
 
     @classmethod
     def from_raw_text(cls, text: str) -> 'Experience':
-        """Heuristic to parse a raw text line into structured Experience fields.
+        """Heuristic to parse a raw/grouped text entry into structured Experience fields.
         
         Supports patterns like:
         - "Title at Company (Start Date - End Date)"
-        - "Title, Company (Start Date - End Date)"
-        - "Title – Research, Company MM/YYYY – Present" (inline dates without parens)
-        - Grouped entries separated by ' | ' where the first segment is the header
+        - "Title, Company MM/YYYY – Present"
+        - Grouped entries: "Header | Bullet1 | Bullet2"
         
         Args:
-            text (str): The raw text line (or grouped entry).
+            text (str): The raw text line (or grouped entry with ' | ' separators).
             
         Returns:
             Experience: An Experience object containing parsed fields.
         """
         if not text:
             return cls("")
-            
-        # If this is a grouped entry (header | bullet1 | bullet2), use the header for parsing
-        header = text.split(' | ')[0] if ' | ' in text else text
-            
+
+        # Split grouped entries into header + description bullets
+        parts = [p.strip() for p in text.split(' | ')]
+        header = parts[0]
+        description = parts[1:] if len(parts) > 1 else []
+
         title = ""
         company = ""
+        location = ""
         start_date = ""
         end_date = ""
-        
+
         # Pattern 1: Inline dates without parentheses
         # e.g. "PRISM Intern – Compiler Optimization Research, Samsung PRISM Program 01/2026 – Present"
         match_inline = re.search(
@@ -87,11 +92,13 @@ class Experience:
                                 end_date = date_parts[1].strip()
                             else:
                                 start_date = date_parts[0].strip()
-                        
+
         return cls(
             raw_text=text,
             company=company,
             title=title,
+            location=location,
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
+            description=description
         )

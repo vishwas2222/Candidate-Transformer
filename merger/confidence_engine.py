@@ -49,5 +49,4 @@ class ConfidenceEngine:
             return 0.0
             
         max_conf = max((self.get_confidence_for_source(src) for src in sources), default=0.0)
-        logger.info("Confidence assigned")
         return max_conf

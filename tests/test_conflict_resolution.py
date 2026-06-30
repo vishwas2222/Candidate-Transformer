@@ -65,3 +65,33 @@ def test_merger_scalar_conflict():
     assert cc.title.value == "SDE"
     assert cc.title.confidence == 1.00
     assert cc.title.sources == ["recruiter.csv"]
+
+
+def test_conflict_resolver_tracks_conflict_report():
+    """ConflictResolver should record structured conflict details (field, old/new
+    value, winner, reason) for every conflict it resolves."""
+    resolver = ConflictResolver()
+
+    resolver.resolve("current_company", "Google LLC", "recruiter.csv", "Google", "sample_resume.pdf")
+
+    assert len(resolver.conflicts) == 1
+    report = resolver.conflicts[0]
+    assert report["field"] == "current_company"
+    assert report["old_value"] == "Google LLC"
+    assert report["new_value"] == "Google"
+    assert report["winner"] == "Google LLC"
+    assert "recruiter.csv" in report["reason"]
+
+
+def test_merge_produces_candidate_field_with_normalized_flag():
+    """Every CandidateField produced by the merger should expose the new
+    'normalized' attribute alongside value/confidence/sources."""
+    merger = CandidateMerger()
+
+    cand1 = {"full_name": "John Doe", "source": "recruiter.csv"}
+    cand2 = {"full_name": "John Doe", "source": "sample_resume.pdf"}
+
+    cc = merger.merge(cand1, cand2)
+
+    assert hasattr(cc.full_name, "normalized")
+    assert cc.full_name.normalized is True

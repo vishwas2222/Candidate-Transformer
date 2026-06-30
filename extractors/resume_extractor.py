@@ -18,6 +18,25 @@ SKILLS_KEYWORDS = [
     "skills & expertise", "skills and technologies", "technologies",
     "technical expertise"
 ]
+PROJECTS_KEYWORDS = [
+    "projects", "personal projects", "academic projects",
+    "side projects", "key projects"
+]
+
+# Section sub-headings that should NOT be treated as skills
+SKILL_SECTION_HEADINGS = {
+    "languages", "core subjects", "backend", "frontend", "backend / development",
+    "development", "tools", "frameworks", "databases", "devops", "cloud",
+    "web technologies", "programming languages", "soft skills", "other",
+    "machine learning", "data science", "mobile", "testing", "infrastructure",
+    "computer organization & architecture (coa)", "computer organization",
+    "achievements", "profiles", "projects", "education", "experience",
+    "technology stack", "tech stack",
+}
+
+# Sorted longest-first so multi-word headings are matched before their shorter substrings
+# (e.g. "core subjects" before "core") when stripping embedded headings from glued tokens.
+_SORTED_HEADINGS = sorted(SKILL_SECTION_HEADINGS, key=len, reverse=True)
 
 # Date pattern to detect lines ending with date ranges
 # Matches both inline dates (e.g. "01/2026 – Present") and parenthesized dates (e.g. "(2022 - Present)")
@@ -64,7 +83,8 @@ class ResumeExtractor:
             "header": [],
             "experience": [],
             "education": [],
-            "skills": []
+            "skills": [],
+            "projects": []
         }
         
         current_section = "header"
@@ -87,8 +107,16 @@ class ResumeExtractor:
             elif check_line in SKILLS_KEYWORDS:
                 current_section = "skills"
                 continue
+            elif check_line in PROJECTS_KEYWORDS:
+                current_section = "projects"
+                continue
+            elif current_section == "skills" and check_line in SKILL_SECTION_HEADINGS:
+                # Sub-headings inside the Skills section (e.g. "Languages", "Core Subjects",
+                # "Backend / Development") are labels, not new top-level resume sections.
+                # Stay in "skills" so the technologies listed beneath them are still captured.
+                continue
             elif len(check_line) < 30 and check_line in [
-                "projects", "certifications", "summary", "objective", 
+                "certifications", "summary", "objective", 
                 "interests", "languages", "publications", "awards"
             ]:
                 # We skip non-core sections, routing their lines to "other" to avoid misclassification
@@ -218,8 +246,45 @@ class ResumeExtractor:
         return PHONE_PATTERN.findall(text)
 
     @classmethod
+    def _is_section_heading(cls, text: str) -> bool:
+        """Checks if a text fragment is a section sub-heading rather than an actual skill.
+        
+        Args:
+            text (str): The skill candidate string.
+            
+        Returns:
+            bool: True if the text is a known section heading.
+        """
+        return text.lower().strip() in SKILL_SECTION_HEADINGS
+
+    @classmethod
+    def _strip_embedded_headings(cls, text: str) -> str:
+        """Removes known section heading phrases embedded inside a line of text.
+        
+        Some PDF layouts (e.g. multi-column resumes) cause two adjacent section
+        headings to be extracted onto a single line with no separator, e.g.
+        "Languages Core Subjects". This strips any such known heading phrases
+        out of the line (as whole-word matches) before the line is split into
+        individual skill tokens, so the heading text never becomes a skill.
+        
+        Args:
+            text (str): A raw line from the skills section.
+            
+        Returns:
+            str: The line with embedded heading phrases removed.
+        """
+        cleaned = text
+        for heading in _SORTED_HEADINGS:
+            pattern = re.compile(rf'(?<!\w){re.escape(heading)}(?!\w)', re.IGNORECASE)
+            cleaned = pattern.sub(' ', cleaned)
+        return re.sub(r'\s+', ' ', cleaned).strip()
+
+    @classmethod
     def extract_skills(cls, text: str, sections: Dict[str, List[str]]) -> List[str]:
         """Extracts skills from the skills section and scans the full text for keywords.
+        
+        Filters out section sub-headings (e.g. "Languages", "Tools", "Backend / Development")
+        that should not appear as skills.
         
         Args:
             text (str): Full text of the resume.
@@ -241,11 +306,16 @@ class ResumeExtractor:
                 skills_part = parts[1]
             else:
                 skills_part = line_clean
+            
+            # Strip any known heading phrases glued onto this line (e.g. from
+            # multi-column PDF layouts merging two headings onto one line)
+            skills_part = cls._strip_embedded_headings(skills_part)
                 
             # Split by commas and semicolons
             for skill in re.split(r'[,;]', skills_part):
-                skill_clean = skill.strip()
-                if skill_clean and len(skill_clean) < 30:
+                skill_clean = skill.strip().rstrip('.').strip()
+                # Filter: skip empty, too long, and section heading terms
+                if skill_clean and len(skill_clean) < 30 and not cls._is_section_heading(skill_clean):
                     extracted_skills.append(skill_clean)
                     
         # 2. Scan the full text for common skills to ensure coverage (keeping matched case)
@@ -255,7 +325,8 @@ class ResumeExtractor:
             "postgresql", "mysql", "react", "angular", "vue", "node\\.js", "django", 
             "flask", "fastapi", "spring", "aws", "azure", "gcp", "docker", "kubernetes", 
             "git", "linux", "machine learning", "deep learning", "nlp", "tensorflow", 
-            "pytorch", "pandas", "numpy", "scikit-learn"
+            "pytorch", "pandas", "numpy", "scikit-learn", "mediapipe", "yolov8", "yolo",
+            "llvm", "clang", "opencv", "express\\.js", "express"
         ]
         
         for kw in common_keywords:
@@ -272,9 +343,6 @@ class ResumeExtractor:
     def extract_experience(cls, sections: Dict[str, List[str]]) -> List[str]:
         """Extracts and groups experience entries.
         
-        Groups bullet descriptions under their parent role header to produce
-        clean, consolidated entries instead of fragmented individual lines.
-        
         Args:
             sections (Dict[str, List[str]]): The parsed sections.
             
@@ -288,9 +356,6 @@ class ResumeExtractor:
     def extract_education(cls, sections: Dict[str, List[str]]) -> List[str]:
         """Extracts and groups education entries.
         
-        Groups supplementary lines (e.g. CGPA, percentage) under their parent
-        institution header.
-        
         Args:
             sections (Dict[str, List[str]]): The parsed sections.
             
@@ -298,4 +363,17 @@ class ResumeExtractor:
             List[str]: Grouped education entries.
         """
         raw_lines = sections.get("education", [])
+        return cls._group_section_entries(raw_lines)
+
+    @classmethod
+    def extract_projects(cls, sections: Dict[str, List[str]]) -> List[str]:
+        """Extracts and groups project entries.
+        
+        Args:
+            sections (Dict[str, List[str]]): The parsed sections.
+            
+        Returns:
+            List[str]: Grouped project entries.
+        """
+        raw_lines = sections.get("projects", [])
         return cls._group_section_entries(raw_lines)

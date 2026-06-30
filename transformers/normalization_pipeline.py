@@ -2,6 +2,7 @@ from typing import Dict, Any, List
 from models.candidate import Candidate
 from models.experience import Experience
 from models.education import Education
+from models.project import Project
 from transformers.phone_normalizer import PhoneNormalizer
 from transformers.email_normalizer import EmailNormalizer
 from transformers.skill_normalizer import SkillNormalizer
@@ -55,8 +56,9 @@ class NormalizationPipeline:
             norm_email = self.email_normalizer.normalize(email)
             if norm_email:
                 normalized_emails.append(norm_email)
-                logger.info("Email normalized")
         normalized_data["emails"] = self._deduplicate(normalized_emails)
+        if normalized_data["emails"]:
+            logger.info(f"Normalized {len(normalized_data['emails'])} email(s).")
         
         # 3. Normalize phones and deduplicate
         phones = raw_data.get("phones", [])
@@ -65,8 +67,9 @@ class NormalizationPipeline:
             norm_phone = self.phone_normalizer.normalize(phone)
             if norm_phone:
                 normalized_phones.append(norm_phone)
-                logger.info("Phone normalized")
         normalized_data["phones"] = self._deduplicate(normalized_phones)
+        if normalized_data["phones"]:
+            logger.info(f"Normalized {len(normalized_data['phones'])} phone(s).")
         
         # 4. Normalize headline, current company, title
         normalized_data["headline"] = self.text_normalizer.normalize(raw_data.get("headline", ""))
@@ -81,6 +84,8 @@ class NormalizationPipeline:
             if norm_skill:
                 normalized_skills.append(norm_skill)
         normalized_data["skills"] = self._deduplicate(normalized_skills)
+        if normalized_data["skills"]:
+            logger.info(f"Normalized {len(normalized_data['skills'])} skills.")
         
         # 6. Parse and normalize experience list
         raw_exp = raw_data.get("experience", [])
@@ -91,12 +96,15 @@ class NormalizationPipeline:
             exp.raw_text = self.text_normalizer.normalize(exp.raw_text)
             exp.company = self.company_normalizer.normalize(exp.company)
             exp.title = self.text_normalizer.normalize(exp.title)
+            exp.location = self.text_normalizer.normalize(exp.location)
             exp.start_date = self.date_normalizer.normalize(exp.start_date)
             # If end_date is present or dates indicate present, keep, otherwise normalize
             if exp.end_date.lower() in ["present", "current", "now"]:
                 exp.end_date = "Present"
             else:
                 exp.end_date = self.date_normalizer.normalize(exp.end_date)
+            # Normalize description bullets
+            exp.description = [self.text_normalizer.normalize(d) for d in exp.description]
             normalized_exp.append(exp)
         normalized_data["experience"] = normalized_exp
         
@@ -111,8 +119,28 @@ class NormalizationPipeline:
             edu.degree = self.text_normalizer.normalize(edu.degree)
             edu.start_date = self.date_normalizer.normalize(edu.start_date)
             edu.end_date = self.date_normalizer.normalize(edu.end_date)
+            # cgpa, percentage, grade are kept as extracted
             normalized_edu.append(edu)
         normalized_data["education"] = normalized_edu
+        
+        # 8. Parse and normalize projects list
+        raw_proj = raw_data.get("projects", [])
+        normalized_proj = []
+        for proj_text in raw_proj:
+            proj = Project.from_raw_text(proj_text)
+            proj.raw_text = self.text_normalizer.normalize(proj.raw_text)
+            proj.project_name = self.text_normalizer.normalize(proj.project_name)
+            proj.start_date = self.date_normalizer.normalize(proj.start_date)
+            if proj.end_date.lower() in ["present", "current", "now"]:
+                proj.end_date = "Present"
+            else:
+                proj.end_date = self.date_normalizer.normalize(proj.end_date)
+            # Normalize technology names
+            proj.technologies = [self.skill_normalizer.normalize(t) for t in proj.technologies if t.strip()]
+            # Normalize description bullets
+            proj.description = [self.text_normalizer.normalize(d) for d in proj.description]
+            normalized_proj.append(proj)
+        normalized_data["projects"] = normalized_proj
         
         normalized_data["source"] = raw_data.get("source", "")
         
