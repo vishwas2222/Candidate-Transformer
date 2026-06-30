@@ -44,3 +44,4 @@ class CanonicalCandidate:
     skills: FieldMetadata = field(default_factory=lambda: FieldMetadata([], 0.0))
     experience: FieldMetadata = field(default_factory=lambda: FieldMetadata([], 0.0))
     education: FieldMetadata = field(default_factory=lambda: FieldMetadata([], 0.0))
+

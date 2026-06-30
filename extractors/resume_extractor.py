@@ -19,8 +19,36 @@ SKILLS_KEYWORDS = [
     "technical expertise"
 ]
 
+# Date pattern to detect lines ending with date ranges
+# Matches both inline dates (e.g. "01/2026 – Present") and parenthesized dates (e.g. "(2022 - Present)")
+DATE_RANGE_PATTERN = re.compile(
+    r'(?:\()?(?:\d{1,2}/)?(?:\d{4})\s*(?:[-–]|to)\s*(?:Present|Current|Now|(?:\d{1,2}/)?\d{4})\s*\)?\s*$',
+    re.IGNORECASE
+)
+
+
 class ResumeExtractor:
     """Extractor class for parsing candidate information from raw resume text."""
+
+    @staticmethod
+    def _preprocess_text(text: str) -> str:
+        """Cleans up common PDF text extraction artifacts.
+        
+        Fixes:
+        - Spaces inserted before '@' in email addresses (e.g. "user @gmail.com")
+        - Removes zero-width spaces and other unicode artifacts
+        
+        Args:
+            text (str): The raw extracted text.
+            
+        Returns:
+            str: The cleaned text.
+        """
+        # Fix spaces before '@' in emails (common pdfplumber artifact)
+        text = re.sub(r'(\S)\s+@\s*(\S)', r'\1@\2', text)
+        # Remove zero-width spaces
+        text = text.replace('\u200b', '').replace('\ufeff', '')
+        return text
 
     @staticmethod
     def extract_sections(text: str) -> Dict[str, List[str]]:
@@ -72,6 +100,62 @@ class ResumeExtractor:
                 
         return sections
 
+    @staticmethod
+    def _group_section_entries(lines: List[str]) -> List[str]:
+        """Groups raw section lines into logical entries.
+        
+        PDFs often split bullet points and descriptions across multiple lines.
+        This method merges them: a "header" line (containing a date range) becomes
+        the start of an entry, and subsequent lines (bullets, descriptions) are
+        joined under it.
+        
+        Args:
+            lines (List[str]): Raw lines from a section.
+            
+        Returns:
+            List[str]: Grouped entries, each as a single string.
+        """
+        if not lines:
+            return []
+            
+        entries = []
+        current_entry_lines = []
+        
+        for line in lines:
+            cleaned = line.strip()
+            
+            # Skip standalone bullet characters
+            if cleaned in ['•', '-', '*', '–']:
+                continue
+            
+            # Strip leading bullet characters from lines
+            stripped = re.sub(r'^[•\-*–]\s*', '', cleaned).strip()
+            if not stripped:
+                continue
+            
+            # Check if this line looks like a "header" (has a date range at the end)
+            is_header = bool(DATE_RANGE_PATTERN.search(stripped))
+            
+            if is_header:
+                # Save the previous entry if it exists
+                if current_entry_lines:
+                    entries.append(' | '.join(current_entry_lines))
+                # Start new entry
+                current_entry_lines = [stripped]
+            else:
+                # Append description to the current entry
+                if current_entry_lines:
+                    current_entry_lines.append(stripped)
+                else:
+                    # Orphan line before first header (e.g. CGPA lines in education)
+                    current_entry_lines = [stripped]
+                    
+        # Don't forget the last entry
+        if current_entry_lines:
+            entries.append(' | '.join(current_entry_lines))
+            
+        return entries
+
     @classmethod
     def extract_name(cls, text: str, sections: Dict[str, List[str]]) -> str:
         """Heuristic to extract candidate name (usually at the very top).
@@ -108,13 +192,18 @@ class ResumeExtractor:
     def extract_emails(cls, text: str) -> List[str]:
         """Extracts all email addresses found in the text.
         
+        Pre-processes text to fix PDF artifacts before running regex.
+        
         Args:
             text (str): Full text.
             
         Returns:
-            List[str]: Found email addresses (includes duplicates if any).
+            List[str]: Found email addresses with spaces removed.
         """
-        return EMAIL_PATTERN.findall(text)
+        cleaned_text = cls._preprocess_text(text)
+        emails = EMAIL_PATTERN.findall(cleaned_text)
+        # Remove any residual whitespace inside the matched emails
+        return [e.replace(' ', '') for e in emails]
 
     @classmethod
     def extract_phones(cls, text: str) -> List[str]:
@@ -181,24 +270,32 @@ class ResumeExtractor:
 
     @classmethod
     def extract_experience(cls, sections: Dict[str, List[str]]) -> List[str]:
-        """Extracts experience lines.
+        """Extracts and groups experience entries.
+        
+        Groups bullet descriptions under their parent role header to produce
+        clean, consolidated entries instead of fragmented individual lines.
         
         Args:
             sections (Dict[str, List[str]]): The parsed sections.
             
         Returns:
-            List[str]: Lines of text representing experience.
+            List[str]: Grouped experience entries.
         """
-        return sections.get("experience", [])
+        raw_lines = sections.get("experience", [])
+        return cls._group_section_entries(raw_lines)
 
     @classmethod
     def extract_education(cls, sections: Dict[str, List[str]]) -> List[str]:
-        """Extracts education lines.
+        """Extracts and groups education entries.
+        
+        Groups supplementary lines (e.g. CGPA, percentage) under their parent
+        institution header.
         
         Args:
             sections (Dict[str, List[str]]): The parsed sections.
             
         Returns:
-            List[str]: Lines of text representing education.
+            List[str]: Grouped education entries.
         """
-        return sections.get("education", [])
+        raw_lines = sections.get("education", [])
+        return cls._group_section_entries(raw_lines)

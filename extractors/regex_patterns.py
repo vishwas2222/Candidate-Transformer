@@ -1,8 +1,9 @@
 import re
 
-# Email regex (Standard RFC 5322 compatible pattern)
+# Email regex — allows optional whitespace before '@' to handle PDF text extraction artifacts
+# where pdfplumber may insert spaces (e.g. "vishwasr762 @gmail.com")
 EMAIL_PATTERN = re.compile(
-    r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    r'[a-zA-Z0-9._%+-]+\s*@\s*[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
 )
 
 # Phone regex (Supports: 9876543210, +1-987-654-3210, (123) 456-7890, 123.456.7890, etc.)

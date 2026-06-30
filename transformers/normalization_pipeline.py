@@ -1,0 +1,119 @@
+from typing import Dict, Any, List
+from models.candidate import Candidate
+from models.experience import Experience
+from models.education import Education
+from transformers.phone_normalizer import PhoneNormalizer
+from transformers.email_normalizer import EmailNormalizer
+from transformers.skill_normalizer import SkillNormalizer
+from transformers.company_normalizer import CompanyNormalizer
+from transformers.date_normalizer import DateNormalizer
+from transformers.text_normalizer import TextNormalizer
+from utils.logger import logger
+
+class NormalizationPipeline:
+    """Orchestrates the normalization and deduplication of candidate fields."""
+
+    def __init__(self):
+        self.phone_normalizer = PhoneNormalizer()
+        self.email_normalizer = EmailNormalizer()
+        self.skill_normalizer = SkillNormalizer()
+        self.company_normalizer = CompanyNormalizer()
+        self.date_normalizer = DateNormalizer()
+        self.text_normalizer = TextNormalizer()
+
+    def _deduplicate(self, lst: List[Any]) -> List[Any]:
+        """Deduplicates a list while preserving original order."""
+        seen = set()
+        result = []
+        for item in lst:
+            if item not in seen:
+                seen.add(item)
+                result.append(item)
+        return result
+
+    def normalize_candidate(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalizes and deduplicates all candidate fields in a raw dictionary.
+        
+        Args:
+            raw_data (Dict[str, Any]): The raw candidate data dictionary.
+            
+        Returns:
+            Dict[str, Any]: A dictionary containing normalized candidate data.
+        """
+        logger.info("Starting normalization")
+        
+        normalized_data = {}
+        
+        # 1. Normalize full name
+        raw_name = raw_data.get("full_name", "")
+        normalized_data["full_name"] = self.text_normalizer.normalize_name(raw_name)
+        
+        # 2. Normalize emails and deduplicate
+        emails = raw_data.get("emails", [])
+        normalized_emails = []
+        for email in emails:
+            norm_email = self.email_normalizer.normalize(email)
+            if norm_email:
+                normalized_emails.append(norm_email)
+                logger.info("Email normalized")
+        normalized_data["emails"] = self._deduplicate(normalized_emails)
+        
+        # 3. Normalize phones and deduplicate
+        phones = raw_data.get("phones", [])
+        normalized_phones = []
+        for phone in phones:
+            norm_phone = self.phone_normalizer.normalize(phone)
+            if norm_phone:
+                normalized_phones.append(norm_phone)
+                logger.info("Phone normalized")
+        normalized_data["phones"] = self._deduplicate(normalized_phones)
+        
+        # 4. Normalize headline, current company, title
+        normalized_data["headline"] = self.text_normalizer.normalize(raw_data.get("headline", ""))
+        normalized_data["current_company"] = self.company_normalizer.normalize(raw_data.get("current_company", ""))
+        normalized_data["title"] = self.text_normalizer.normalize(raw_data.get("title", ""))
+        
+        # 5. Normalize skills and deduplicate
+        skills = raw_data.get("skills", [])
+        normalized_skills = []
+        for skill in skills:
+            norm_skill = self.skill_normalizer.normalize(skill)
+            if norm_skill:
+                normalized_skills.append(norm_skill)
+        normalized_data["skills"] = self._deduplicate(normalized_skills)
+        
+        # 6. Parse and normalize experience list
+        raw_exp = raw_data.get("experience", [])
+        normalized_exp = []
+        for exp_text in raw_exp:
+            exp = Experience.from_raw_text(exp_text)
+            # Normalize internal fields
+            exp.raw_text = self.text_normalizer.normalize(exp.raw_text)
+            exp.company = self.company_normalizer.normalize(exp.company)
+            exp.title = self.text_normalizer.normalize(exp.title)
+            exp.start_date = self.date_normalizer.normalize(exp.start_date)
+            # If end_date is present or dates indicate present, keep, otherwise normalize
+            if exp.end_date.lower() in ["present", "current", "now"]:
+                exp.end_date = "Present"
+            else:
+                exp.end_date = self.date_normalizer.normalize(exp.end_date)
+            normalized_exp.append(exp)
+        normalized_data["experience"] = normalized_exp
+        
+        # 7. Parse and normalize education list
+        raw_edu = raw_data.get("education", [])
+        normalized_edu = []
+        for edu_text in raw_edu:
+            edu = Education.from_raw_text(edu_text)
+            # Normalize internal fields
+            edu.raw_text = self.text_normalizer.normalize(edu.raw_text)
+            edu.school = self.text_normalizer.normalize(edu.school)
+            edu.degree = self.text_normalizer.normalize(edu.degree)
+            edu.start_date = self.date_normalizer.normalize(edu.start_date)
+            edu.end_date = self.date_normalizer.normalize(edu.end_date)
+            normalized_edu.append(edu)
+        normalized_data["education"] = normalized_edu
+        
+        normalized_data["source"] = raw_data.get("source", "")
+        
+        return normalized_data
