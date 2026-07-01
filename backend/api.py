@@ -217,6 +217,22 @@ def _shape_to_schema(raw: dict, config_name: str) -> dict:
     phones_e164 = [_to_e164(p) for p in raw_phones if p]
     phones_e164 = [p for p in phones_e164 if p]   # drop empties
 
+    # ── Projects (not in base schema but kept for UI display) ──────────────
+    raw_proj = uw("projects") or []
+    proj_out = []
+    for p in raw_proj:
+        if not isinstance(p, dict):
+            continue
+        proj_out.append({
+            "project_name":     p.get("project_name") or p.get("name") or "",
+            "technology_stack": p.get("technology_stack") or p.get("technologies") or [],
+            "start_date":       p.get("start_date") or p.get("start") or "",
+            "end_date":         p.get("end_date")   or p.get("end")   or "",
+            "description":      p.get("description") or [],
+            "github":           p.get("github") or "",
+            "demo":             p.get("demo")   or "",
+        })
+
     shaped = {
         "candidate_id":       uw("candidate_id")      or "",
         "full_name":          uw("full_name")          or "",
@@ -229,6 +245,7 @@ def _shape_to_schema(raw: dict, config_name: str) -> dict:
         "skills":             skills_out,
         "experience":         exp_out,
         "education":          edu_out,
+        "projects":           proj_out,
         "provenance":         provenance if include_conf else [],
         "overall_confidence": raw_c.get("overall_confidence"),
     }
