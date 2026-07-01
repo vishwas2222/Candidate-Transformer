@@ -1,12 +1,32 @@
 {
   "errors": [],
-  "info": [
-    {
-      "field": "experience[0]",
-      "message": "'company' is empty in 'experience' item.",
-      "type": "INFO"
-    }
-  ],
+  "info": [],
   "is_valid": true,
-  "warnings": []
+  "warnings": [
+    {
+      "field": "candidate_id",
+      "message": "Unknown field 'candidate_id' in output.",
+      "type": "WARNING"
+    },
+    {
+      "field": "location",
+      "message": "Unknown field 'location' in output.",
+      "type": "WARNING"
+    },
+    {
+      "field": "links",
+      "message": "Unknown field 'links' in output.",
+      "type": "WARNING"
+    },
+    {
+      "field": "years_experience",
+      "message": "Unknown field 'years_experience' in output.",
+      "type": "WARNING"
+    },
+    {
+      "field": "overall_confidence",
+      "message": "Unknown field 'overall_confidence' in output.",
+      "type": "WARNING"
+    }
+  ]
 }

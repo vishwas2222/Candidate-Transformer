@@ -83,6 +83,22 @@ def _unwrap(v):
     return v
 
 
+def _to_e164(phone: str) -> str:
+    """Strip all formatting characters from a phone number, keep leading +.
+
+    Examples:
+        '+91 90147 46514' -> '+919014746514'
+        '+91 7795279149'  -> '+917795279149'
+        '(987) 654-3210'  -> '9876543210'
+    """
+    if not isinstance(phone, str):
+        return ""
+    import re as _re
+    has_plus = phone.lstrip().startswith('+')
+    digits   = _re.sub(r'[^\d]', '', phone)
+    return ('+' + digits) if has_plus else digits
+
+
 def _shape_to_schema(raw: dict, config_name: str) -> dict:
     """Map the internal pipeline output to the exact Eightfold assignment schema.
 
@@ -194,11 +210,18 @@ def _shape_to_schema(raw: dict, config_name: str) -> dict:
     # ── Include provenance / confidence only for analytics config ─────────
     include_conf = config_name == "analytics"
 
+    # ── Phones → E.164 (strip all spaces / dashes / parens) ────────────────
+    raw_phones = uw("phones") or []
+    if isinstance(raw_phones, str):
+        raw_phones = [raw_phones]
+    phones_e164 = [_to_e164(p) for p in raw_phones if p]
+    phones_e164 = [p for p in phones_e164 if p]   # drop empties
+
     shaped = {
         "candidate_id":       uw("candidate_id")      or "",
         "full_name":          uw("full_name")          or "",
         "emails":             uw("emails")             or [],
-        "phones":             uw("phones")             or [],
+        "phones":             phones_e164,
         "location":           location,
         "links":              links,
         "headline":           uw("headline")           or None,
