@@ -76,6 +76,143 @@ def _save_upload(file_storage, suffix: str) -> str:
     return path
 
 
+def _unwrap(v):
+    """Unwrap a CandidateField dict to its plain value."""
+    if isinstance(v, dict) and "value" in v:
+        return v["value"]
+    return v
+
+
+def _shape_to_schema(raw: dict, config_name: str) -> dict:
+    """Map the internal pipeline output to the exact Eightfold assignment schema.
+
+    Assignment schema fields:
+      candidate_id, full_name, emails, phones (E.164), location, links,
+      headline, years_experience, skills [{name,confidence,sources}],
+      experience [{company,title,start,end,summary}],
+      education [{institution,degree,field,end_year}],
+      provenance [{field,source,method}], overall_confidence
+    """
+    # The serializer may nest the candidate under a "candidate" key
+    raw_c = raw.get("candidate", raw) if isinstance(raw, dict) else raw
+
+    # ── Unwrap all top-level CandidateField wrappers ───────────────────────
+    def uw(key):
+        return _unwrap(raw_c.get(key))
+
+    # ── Skills → [{name, confidence, sources}] ────────────────────────────
+    raw_skills = uw("skills") or []
+    if raw_skills and isinstance(raw_skills[0], str):
+        # Plain string list — wrap in schema shape
+        skills_out = [
+            {"name": s, "confidence": 0.9, "sources": ["resume"]}
+            for s in raw_skills
+        ]
+    elif raw_skills and isinstance(raw_skills[0], dict) and "name" in raw_skills[0]:
+        skills_out = raw_skills      # already shaped
+    else:
+        skills_out = [
+            {"name": str(s), "confidence": 0.9, "sources": ["resume"]}
+            for s in raw_skills if s
+        ]
+
+    # ── Education → [{institution, degree, field, end_year}] ─────────────
+    raw_edu = uw("education") or []
+    edu_out = []
+    for e in raw_edu:
+        if not isinstance(e, dict):
+            continue
+        field_name = (
+            e.get("specialization") or e.get("field") or ""
+        ).rstrip(".")
+        end_year_raw = e.get("end_date") or e.get("end_year") or ""
+        if isinstance(end_year_raw, str) and "-" in end_year_raw:
+            end_year = end_year_raw.split("-")[0]
+        else:
+            end_year = str(end_year_raw) if end_year_raw else ""
+
+        edu_entry = {
+            "institution": e.get("institution") or e.get("school") or "",
+            "degree":      e.get("degree") or "",
+            "field":       field_name,
+            "end_year":    end_year,
+        }
+        # Include grade info if present (bonus info, not in base schema)
+        cgpa = e.get("cgpa") or ""
+        pct  = e.get("percentage") or ""
+        if cgpa:
+            edu_entry["cgpa"] = cgpa
+        if pct:
+            edu_entry["percentage"] = pct
+        edu_out.append(edu_entry)
+
+    # ── Experience → [{company, title, start, end, summary}] ─────────────
+    raw_exp = uw("experience") or []
+    exp_out = []
+    for e in raw_exp:
+        if not isinstance(e, dict):
+            continue
+        desc = e.get("description") or e.get("summary") or []
+        summary = " ".join(desc) if isinstance(desc, list) else str(desc)
+        exp_out.append({
+            "company": e.get("company") or e.get("organisation") or "",
+            "title":   e.get("title")   or e.get("role")         or "",
+            "start":   e.get("start_date") or e.get("start")     or "",
+            "end":     e.get("end_date")   or e.get("end")       or "",
+            "summary": summary,
+        })
+
+    # ── Provenance → [{field, source, method}] ────────────────────────────
+    provenance = []
+    for key in ("full_name", "emails", "phones", "skills", "education",
+                "experience", "location", "links", "headline", "years_experience"):
+        raw_field = raw_c.get(key)
+        if isinstance(raw_field, dict) and "sources" in raw_field:
+            provenance.append({
+                "field":  key,
+                "source": ", ".join(raw_field["sources"]) if raw_field["sources"] else "resume",
+                "method": "regex-extraction" if "resume" in str(raw_field.get("sources", [])) else "csv-parse",
+            })
+
+    # ── Location ─────────────────────────────────────────────────────────
+    loc_raw = uw("location") or {}
+    location = {
+        "city":    loc_raw.get("city", "")    if isinstance(loc_raw, dict) else "",
+        "region":  loc_raw.get("region", "")  if isinstance(loc_raw, dict) else "",
+        "country": loc_raw.get("country", "") if isinstance(loc_raw, dict) else "",
+    }
+
+    # ── Links ────────────────────────────────────────────────────────────
+    links_raw = uw("links") or {}
+    links = {
+        "linkedin":  links_raw.get("linkedin", "")  if isinstance(links_raw, dict) else "",
+        "github":    links_raw.get("github", "")    if isinstance(links_raw, dict) else "",
+        "portfolio": links_raw.get("portfolio", "") if isinstance(links_raw, dict) else "",
+        "other":     links_raw.get("other", [])     if isinstance(links_raw, dict) else [],
+    }
+
+    # ── Include provenance / confidence only for analytics config ─────────
+    include_conf = config_name == "analytics"
+
+    shaped = {
+        "candidate_id":       uw("candidate_id")      or "",
+        "full_name":          uw("full_name")          or "",
+        "emails":             uw("emails")             or [],
+        "phones":             uw("phones")             or [],
+        "location":           location,
+        "links":              links,
+        "headline":           uw("headline")           or None,
+        "years_experience":   uw("years_experience"),
+        "skills":             skills_out,
+        "experience":         exp_out,
+        "education":          edu_out,
+        "provenance":         provenance if include_conf else [],
+        "overall_confidence": raw_c.get("overall_confidence"),
+    }
+
+    return shaped
+
+
 def _run_pipeline(resume_path: str | None, csv_path: str | None, config_name: str) -> dict:
     """Runs the full parse → normalize → merge → project → validate pipeline.
 
@@ -139,8 +276,9 @@ def _run_pipeline(resume_path: str | None, csv_path: str | None, config_name: st
         except _json.JSONDecodeError:
             pass  # leave as-is if it's not valid JSON
 
+    shaped = _shape_to_schema(formatted_json, config_name)
     return {
-        "candidate":         formatted_json,
+        "candidate":         shaped,
         "validation_report": report.to_dict(),
     }
 
@@ -216,6 +354,83 @@ def transform():
 def health():
     """Simple liveness probe."""
     return jsonify({"status": "ok", "service": "candidate-transformer"}), 200
+
+
+@app.route("/api/transform/batch", methods=["POST"])
+def transform_batch():
+    """Batch transformation endpoint — accepts multiple resume PDFs.
+
+    Form fields:
+        resumes   (files, required) — one or more PDF resumes
+        csv       (file,  optional) — single recruiter CSV applied to all
+        config    (str,   optional) — output profile
+    """
+    resume_files = request.files.getlist("resumes")
+    resume_files = [f for f in resume_files if f.filename != ""]
+
+    if not resume_files:
+        return jsonify({"error": "At least one resume PDF is required."}), 400
+
+    # Validate each resume extension
+    for rf in resume_files:
+        if not rf.filename.lower().endswith(".pdf"):
+            return jsonify({
+                "error": f'"{rf.filename}" is not a PDF. Only .pdf files are accepted.'
+            }), 400
+
+    # Optional CSV
+    csv_file = None
+    if "csv" in request.files and request.files["csv"].filename != "":
+        csv_file = request.files["csv"]
+        if not csv_file.filename.lower().endswith(".csv"):
+            return jsonify({"error": "Recruiter file must be a CSV (.csv)."}), 400
+
+    config_name = (request.form.get("config") or "default").lower().strip()
+    if config_name not in VALID_CONFIGS:
+        config_name = "default"
+
+    # Save shared CSV once
+    csv_path = None
+    temp_paths = []
+    try:
+        if csv_file:
+            csv_path = _save_upload(csv_file, suffix=".csv")
+            temp_paths.append(csv_path)
+
+        results = []
+        for rf in resume_files:
+            resume_path = _save_upload(rf, suffix=".pdf")
+            temp_paths.append(resume_path)
+            try:
+                result = _run_pipeline(resume_path, csv_path, config_name)
+                result["filename"] = rf.filename
+                result["status"]   = "success"
+            except (UnsupportedFileTypeError, FileValidationError,
+                    CorruptedPDFError, EmptyResumeError,
+                    CorruptedCSVError, ParserError, ValueError) as exc:
+                result = {
+                    "filename": rf.filename,
+                    "status":   "error",
+                    "error":    str(exc),
+                }
+            except Exception as exc:          # pylint: disable=broad-except
+                logger.error(f"Batch error on {rf.filename}: {exc}\n{traceback.format_exc()}")
+                result = {
+                    "filename": rf.filename,
+                    "status":   "error",
+                    "error":    "Unexpected server error processing this file.",
+                }
+            results.append(result)
+
+        return jsonify({"results": results, "total": len(results)}), 200
+
+    finally:
+        for path in temp_paths:
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────

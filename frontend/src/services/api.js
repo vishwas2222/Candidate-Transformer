@@ -6,17 +6,12 @@ const BASE_URL = import.meta.env.VITE_API_URL || '';
 
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 120_000, // 2 min — PDF parsing can take a moment
+  timeout: 300_000, // 5 min — batch of PDFs may take longer
 });
 
 
 /**
- * Transforms a resume (+ optional CSV) using the backend pipeline.
- *
- * @param {File}   resumeFile   Required PDF resume
- * @param {File|null} csvFile   Optional recruiter CSV
- * @param {string} config       Profile name: default | minimal | recruiter | analytics
- * @returns {Promise<{candidate: object, validation_report: object}>}
+ * Transforms a single resume (+ optional CSV) using the backend pipeline.
  */
 export async function transformCandidate(resumeFile, csvFile, config = 'default') {
   const form = new FormData();
@@ -25,6 +20,26 @@ export async function transformCandidate(resumeFile, csvFile, config = 'default'
   form.append('config', config);
 
   const { data } = await api.post('/api/transform', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+}
+
+
+/**
+ * Transforms multiple resumes in one request.
+ * @param {File[]}    resumeFiles  Array of PDF files
+ * @param {File|null} csvFile      Optional shared recruiter CSV
+ * @param {string}    config       Profile name
+ * @returns {Promise<{results: Array, total: number}>}
+ */
+export async function transformBatch(resumeFiles, csvFile, config = 'default') {
+  const form = new FormData();
+  resumeFiles.forEach((f) => form.append('resumes', f));
+  if (csvFile) form.append('csv', csvFile);
+  form.append('config', config);
+
+  const { data } = await api.post('/api/transform/batch', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return data;

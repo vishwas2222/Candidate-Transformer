@@ -1,17 +1,20 @@
 function EducationEntry({ entry, index }) {
-  const degree         = entry.degree         || '';
-  const specialization = entry.specialization  || '';
-  const institution    = entry.institution    || entry.school || '';
-  const startDate      = entry.start_date     || '';
-  const endDate        = entry.end_date       || '';
-  const cgpa           = entry.cgpa           || null;
-  const percentage     = entry.percentage     || null;
-  const grade          = entry.grade          || null;
-  const desc           = Array.isArray(entry.description) ? entry.description : [];
+  // Support both old keys (start_date, end_date, specialization) and
+  // new schema keys (field, end_year)
+  const degree      = entry.degree        || '';
+  const field       = entry.field         || entry.specialization || '';
+  const institution = entry.institution   || entry.school         || '';
+  const endYear     = entry.end_year      || entry.end_date       || '';
+  const startDate   = entry.start_date    || '';
+  const cgpa        = entry.cgpa          || null;
+  const percentage  = entry.percentage    || null;
+  const grade       = entry.grade         || null;
 
-  const period = [startDate, endDate].filter(Boolean).join(' – ');
+  const period = startDate
+    ? [startDate, endYear].filter(Boolean).join(' – ')
+    : endYear || '';
 
-  const degreeLabel = [degree, specialization].filter(Boolean).join(', ');
+  const degreeLabel = [degree, field].filter(Boolean).join(', ');
 
   return (
     <div className={index > 0 ? 'pt-5 border-t border-slate-100' : ''}>
@@ -48,17 +51,6 @@ function EducationEntry({ entry, index }) {
           </div>
         </div>
       </div>
-
-      {desc.length > 0 && (
-        <ul className="mt-3 space-y-1 text-sm text-slate-600">
-          {desc.map((d, i) => (
-            <li key={i} className="flex gap-2">
-              <span className="text-brand-400 mt-0.5 shrink-0">›</span>
-              <span>{d}</span>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }

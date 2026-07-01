@@ -1,12 +1,19 @@
 function ExperienceEntry({ entry, index }) {
-  const title     = entry.title     || entry.header || 'Role';
-  const company   = entry.company   || '';
-  const location  = entry.location  || '';
-  const startDate = entry.start_date || '';
-  const endDate   = entry.end_date   || '';
-  const desc      = Array.isArray(entry.description) ? entry.description : [];
+  // Support both old keys (start_date, end_date, description) and
+  // new schema keys (start, end, summary)
+  const title    = entry.title    || entry.header || 'Role';
+  const company  = entry.company  || '';
+  const location = entry.location || '';
+  const start    = entry.start    || entry.start_date || '';
+  const end      = entry.end      || entry.end_date   || '';
 
-  const period = [startDate, endDate].filter(Boolean).join(' – ');
+  // summary may be a string (new schema) or array of bullets (old schema)
+  const rawSummary = entry.summary || entry.description || [];
+  const bullets = Array.isArray(rawSummary)
+    ? rawSummary
+    : rawSummary ? [rawSummary] : [];
+
+  const period = [start, end].filter(Boolean).join(' – ');
 
   return (
     <div className={index > 0 ? 'pt-5 border-t border-slate-100' : ''}>
@@ -25,12 +32,12 @@ function ExperienceEntry({ entry, index }) {
         )}
       </div>
 
-      {desc.length > 0 && (
+      {bullets.length > 0 && (
         <ul className="mt-3 space-y-1.5">
-          {desc.map((bullet, i) => (
+          {bullets.map((bullet, i) => (
             <li key={i} className="flex gap-2 text-sm text-slate-600">
               <span className="text-brand-400 mt-1 shrink-0">›</span>
-              <span>{bullet}</span>
+              <span>{typeof bullet === 'string' ? bullet : JSON.stringify(bullet)}</span>
             </li>
           ))}
         </ul>
